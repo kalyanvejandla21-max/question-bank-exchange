@@ -1,0 +1,15 @@
+{
+  "name": "qb-exchanger-root",
+  "version": "1.0.0",
+  "description": "Question Bank Exchange - Academic Resource Platform",
+  "private": true,
+  "scripts": {
+    "install:all": "cmd /c npm install && cd server && cmd /c npm install && cd ../client && cmd /c npm install",
+    "dev:server": "cd server && cmd /c npm run dev",
+    "dev:client": "cd client && cmd /c npm run dev",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

@@ -1,0 +1,345 @@
+{
+  "semesters": [
+    {
+      "id": "sem-3-1",
+      "name": "3-1",
+      "title": "Third Year - Semester 1",
+      "description": "Data Warehousing, Computer Networks, Operating Systems & Machine Learning"
+    },
+    {
+      "id": "sem-3-2",
+      "name": "3-2",
+      "title": "Third Year - Semester 2",
+      "description": "Web Technologies, Compiler Design, AI, Cryptography & Cloud Computing"
+    },
+    {
+      "id": "sem-4-1",
+      "name": "4-1",
+      "title": "Fourth Year - Semester 1",
+      "description": "Information Security, Big Data, Distributed Systems & Project Management"
+    },
+    {
+      "id": "sem-4-2",
+      "name": "4-2",
+      "title": "Fourth Year - Semester 2",
+      "description": "IoT, Cyber Forensics, Mobile Computing & Major Capstone Project"
+    }
+  ],
+  "subjects": [
+    {
+      "id": "subj-31-1",
+      "code": "DW301",
+      "name": "Data Warehousing & Data Mining",
+      "semester": "3-1"
+    },
+    {
+      "id": "subj-31-2",
+      "code": "CN302",
+      "name": "Computer Networks",
+      "semester": "3-1"
+    },
+    {
+      "id": "subj-32-1",
+      "code": "WT306",
+      "name": "Web Technologies",
+      "semester": "3-2"
+    },
+    {
+      "id": "subj-32-2",
+      "code": "CD307",
+      "name": "Compiler Design",
+      "semester": "3-2"
+    },
+    {
+      "id": "subj-32-3",
+      "code": "AI308",
+      "name": "Artificial Intelligence",
+      "semester": "3-2"
+    },
+    {
+      "id": "subj-32-4",
+      "code": "CNS309",
+      "name": "Cryptography & Network Security",
+      "semester": "3-2"
+    },
+    {
+      "id": "subj-41-1",
+      "code": "IS401",
+      "name": "Information Security",
+      "semester": "4-1"
+    },
+    {
+      "id": "subj-41-2",
+      "code": "BDA402",
+      "name": "Big Data Analytics",
+      "semester": "4-1"
+    },
+    {
+      "id": "subj-41-3",
+      "code": "DS403",
+      "name": "Distributed Systems",
+      "semester": "4-1"
+    },
+    {
+      "id": "subj-42-1",
+      "code": "IOT404",
+      "name": "Internet of Things (IoT)",
+      "semester": "4-2"
+    },
+    {
+      "id": "subj-42-2",
+      "code": "MC405",
+      "name": "Mobile Computing",
+      "semester": "4-2"
+    },
+    {
+      "id": "subj-42-3",
+      "code": "CSF406",
+      "name": "Cyber Security & Digital Forensics",
+      "semester": "4-2"
+    },
+    {
+      "id": "subj-1789825088012",
+      "name": "QUANTUM COMPUTING",
+      "code": "QUAN",
+      "semester": "3-1"
+    },
+    {
+      "id": "subj-1789825194828",
+      "name": "FLAT",
+      "code": "FLAT",
+      "semester": "3-1"
+    },
+    {
+      "id": "subj-1789881109574",
+      "name": "EVC",
+      "code": "EVC",
+      "semester": "3-1"
+    },
+    {
+      "id": "subj-1789881141655",
+      "name": "FSD LAB",
+      "code": "FSD ",
+      "semester": "3-1"
+    },
+    {
+      "id": "subj-1789881170738",
+      "name": "FLUTTER LAB",
+      "code": "FLUT",
+      "semester": "3-1"
+    }
+  ],
+  "resources": [
+    {
+      "id": "res-dwdm-1",
+      "name": "DWDM Comprehensive Question Bank 2026",
+      "semester": "3-1",
+      "subjectId": "subj-31-1",
+      "subjectName": "Data Warehousing & Data Mining",
+      "category": "Question Bank",
+      "fileName": "sample-dwdm-qb1.pdf",
+      "fileUrl": "/uploads/sample-dwdm-qb1.pdf",
+      "fileSize": "1.4 MB",
+      "uploadedDate": "2026-02-15",
+      "downloadsCount": 142,
+      "fileHash": "4347a8173041d3fbb5d044492e18896d",
+      "reportStatus": "none"
+    },
+    {
+      "id": "res-dwdm-2",
+      "name": "DWDM Previous Semester Exam Paper 2025",
+      "semester": "3-1",
+      "subjectId": "subj-31-1",
+      "subjectName": "Data Warehousing & Data Mining",
+      "category": "Previous Question Paper",
+      "fileName": "sample-dwdm-paper2025.pdf",
+      "fileUrl": "/uploads/sample-dwdm-paper2025.pdf",
+      "fileSize": "850 KB",
+      "uploadedDate": "2026-01-10",
+      "downloadsCount": 310,
+      "fileHash": "2c2696bd7c4530d6bb873d6078410d04",
+      "reportStatus": "none"
+    },
+    {
+      "id": "res-dwdm-3",
+      "name": "Unit 1 & Unit 2 Data Mining Important Questions",
+      "semester": "3-1",
+      "subjectId": "subj-31-1",
+      "subjectName": "Data Warehousing & Data Mining",
+      "category": "Important Questions",
+      "fileName": "sample-dwdm-unit1-imp.pdf",
+      "fileUrl": "/uploads/sample-dwdm-unit1-imp.pdf",
+      "fileSize": "620 KB",
+      "uploadedDate": "2026-03-01",
+      "downloadsCount": 98,
+      "fileHash": "ee20bbe20662eb6e9cbf9a71a216d302",
+      "reportStatus": "none"
+    },
+    {
+      "id": "res-cn-1",
+      "name": "Computer Networks All Units Notes & Question Bank",
+      "semester": "3-1",
+      "subjectId": "subj-31-2",
+      "subjectName": "Computer Networks",
+      "category": "Study Material",
+      "fileName": "sample-cn-notes.pdf",
+      "fileUrl": "/uploads/sample-cn-notes.pdf",
+      "fileSize": "2.1 MB",
+      "uploadedDate": "2026-02-20",
+      "downloadsCount": 220,
+      "fileHash": "9a997b2fd34cb7d126e077f17486d8d4",
+      "reportStatus": "none"
+    },
+    {
+      "id": "res-1789825088064",
+      "name": "quantum-unit-1",
+      "semester": "3-1",
+      "subjectId": "subj-1789825088012",
+      "subjectName": "QUANTUM COMPUTING",
+      "category": "Question Bank",
+      "fileName": "1789825088030-749249390-quantum-unit-1.pdf",
+      "fileUrl": "/uploads/1789825088030-749249390-quantum-unit-1.pdf",
+      "fileSize": "2.0 MB",
+      "uploadedDate": "2026-09-19",
+      "downloadsCount": 0,
+      "fileHash": "fae884ade828408ffd145e6919601d4c",
+      "reportStatus": "none"
+    },
+    {
+      "id": "res-1789826077759",
+      "name": "FLAT UNIT-1 NOTES",
+      "semester": "3-1",
+      "subjectId": "subj-31-2",
+      "subjectName": "Computer Networks",
+      "category": "Question Bank",
+      "fileName": "1789826077643-94982944-FLAT_UNIT-1_NOTES.pdf",
+      "fileUrl": "/uploads/1789826077643-94982944-FLAT_UNIT-1_NOTES.pdf",
+      "fileSize": "20.0 MB",
+      "uploadedDate": "2026-09-19",
+      "downloadsCount": 0,
+      "fileHash": "536cb0e6626114783f53870132bac5cb",
+      "reportStatus": "none"
+    },
+    {
+      "id": "res-1789880984968",
+      "name": "QC-QB (1)-1",
+      "semester": "3-1",
+      "subjectId": "subj-1789825088012",
+      "subjectName": "QUANTUM COMPUTING",
+      "category": "Question Bank",
+      "fileName": "1789880984951-597569010-QC-QB__1_-1.pdf",
+      "fileUrl": "/uploads/1789880984951-597569010-QC-QB__1_-1.pdf",
+      "fileSize": "732 KB",
+      "uploadedDate": "2026-09-20",
+      "downloadsCount": 0,
+      "fileHash": "66a3478840f6345590b96f16d954e82a",
+      "reportStatus": "none"
+    },
+    {
+      "id": "res-1789881037887",
+      "name": "FLAT QB (1)",
+      "semester": "3-1",
+      "subjectId": "subj-1789825194828",
+      "subjectName": "FLAT",
+      "category": "Question Bank",
+      "fileName": "1789881037870-486813884-FLAT_QB__1_.pdf",
+      "fileUrl": "/uploads/1789881037870-486813884-FLAT_QB__1_.pdf",
+      "fileSize": "717 KB",
+      "uploadedDate": "2026-09-20",
+      "downloadsCount": 0,
+      "fileHash": "a76b571a144a5841fc0c771ff4d04336",
+      "reportStatus": "none"
+    },
+    {
+      "id": "res-1789881048798",
+      "name": "Flat unit 2(3)",
+      "semester": "3-1",
+      "subjectId": "subj-1789825194828",
+      "subjectName": "FLAT",
+      "category": "Question Bank",
+      "fileName": "1789881048613-567378367-Flat_unit_2_3_.pdf",
+      "fileUrl": "/uploads/1789881048613-567378367-Flat_unit_2_3_.pdf",
+      "fileSize": "10.9 MB",
+      "uploadedDate": "2026-09-20",
+      "downloadsCount": 0,
+      "fileHash": "aab90ce9a188e7ce9e97a8b4bb1b7370",
+      "reportStatus": "none"
+    },
+    {
+      "id": "res-1789881061478",
+      "name": "FLAT unit 1",
+      "semester": "3-1",
+      "subjectId": "subj-1789825194828",
+      "subjectName": "FLAT",
+      "category": "Question Bank",
+      "fileName": "1789881061396-808654616-FLAT_unit_1.pdf",
+      "fileUrl": "/uploads/1789881061396-808654616-FLAT_unit_1.pdf",
+      "fileSize": "5.5 MB",
+      "uploadedDate": "2026-09-20",
+      "downloadsCount": 0,
+      "fileHash": "9a95ba0f14a8fc6e893c32f0c4a4560f",
+      "reportStatus": "none"
+    },
+    {
+      "id": "res-1789881072891",
+      "name": "FLAT UNIT-1 NOTES",
+      "semester": "3-1",
+      "subjectId": "subj-1789825194828",
+      "subjectName": "FLAT",
+      "category": "Question Bank",
+      "fileName": "1789881072020-169175059-FLAT_UNIT-1_NOTES.pdf",
+      "fileUrl": "/uploads/1789881072020-169175059-FLAT_UNIT-1_NOTES.pdf",
+      "fileSize": "21.1 MB",
+      "uploadedDate": "2026-09-20",
+      "downloadsCount": 0,
+      "fileHash": "7196e9d2427cca4b94546fc187465a5a",
+      "reportStatus": "none"
+    },
+    {
+      "id": "res-1789881109604",
+      "name": "EVC notes 1-3 units",
+      "semester": "3-1",
+      "subjectId": "subj-1789881109574",
+      "subjectName": "EVC",
+      "category": "Question Bank",
+      "fileName": "1789881109591-507307742-EVC_notes_1-3_units.pdf",
+      "fileUrl": "/uploads/1789881109591-507307742-EVC_notes_1-3_units.pdf",
+      "fileSize": "775 KB",
+      "uploadedDate": "2026-09-20",
+      "downloadsCount": 0,
+      "fileHash": "ea969d6cbe238a0c50383138a2a92e5d",
+      "reportStatus": "none"
+    },
+    {
+      "id": "res-1789881141827",
+      "name": "FSD -2 Lab Manual",
+      "semester": "3-1",
+      "subjectId": "subj-1789881141655",
+      "subjectName": "FSD LAB",
+      "category": "Question Bank",
+      "fileName": "1789881141675-872874652-FSD_-2_Lab_Manual.pdf",
+      "fileUrl": "/uploads/1789881141675-872874652-FSD_-2_Lab_Manual.pdf",
+      "fileSize": "12.9 MB",
+      "uploadedDate": "2026-09-20",
+      "downloadsCount": 0,
+      "fileHash": "a45fce791e898bdfaef23a7309d94c5b",
+      "reportStatus": "none"
+    },
+    {
+      "id": "res-1789881170797",
+      "name": "UID flutter lab experiments",
+      "semester": "3-1",
+      "subjectId": "subj-1789881170738",
+      "subjectName": "FLUTTER LAB",
+      "category": "Question Bank",
+      "fileName": "1789881170758-672618772-UID_flutter_lab_experiments.pdf",
+      "fileUrl": "/uploads/1789881170758-672618772-UID_flutter_lab_experiments.pdf",
+      "fileSize": "2.8 MB",
+      "uploadedDate": "2026-09-20",
+      "downloadsCount": 0,
+      "fileHash": "65ba14d0f0b4b72da8d26cad3cb691f2",
+      "reportStatus": "none"
+    }
+  ],
+  "reports": []
+}
