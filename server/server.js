@@ -11,6 +11,8 @@ import resourceRoutes from './routes/resourceRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import searchRoutes from './routes/searchRoutes.js';
 import { store } from './data/store.js';
+import { isCloudinaryConfigured } from './config/cloudinary.js';
+import { migrateMongoFilesToCloudinary } from './data/mongoMigration.js';
 
 dotenv.config();
 
@@ -49,15 +51,6 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Optional MongoDB Connection
-if (process.env.MONGODB_URI) {
-  mongoose.connect(process.env.MONGODB_URI)
-    .then(() => console.log('✅ Connected to MongoDB Database'))
-    .catch((err) => console.warn('⚠️ MongoDB Connection warning (Using file database fallback):', err.message));
-} else {
-  console.log('ℹ️ Running with Zero-Config Local File Database (store.json)');
-}
-
 // Global error handler
 app.use((err, req, res, next) => {
   console.error('Server error:', err);
@@ -66,6 +59,29 @@ app.use((err, req, res, next) => {
     message: err.message || 'Internal Server Error'
   });
 });
+
+// Database & Migration Initialization
+if (process.env.MONGODB_URI) {
+  try {
+    await mongoose.connect(process.env.MONGODB_URI);
+    console.log('✅ Connected to MongoDB Database');
+    await store.syncWithMongo();
+    if (isCloudinaryConfigured()) {
+      await migrateMongoFilesToCloudinary();
+      await store.syncWithMongo();
+    }
+  } catch (err) {
+    console.warn('⚠️ MongoDB Connection warning (Using file database fallback):', err.message);
+    if (isCloudinaryConfigured()) {
+      await store.migrateLocalFilesToCloudinary();
+    }
+  }
+} else {
+  console.log('ℹ️ Running with Zero-Config Local File Database (store.json)');
+  if (isCloudinaryConfigured()) {
+    await store.migrateLocalFilesToCloudinary();
+  }
+}
 
 const server = app.listen(PORT, () => {
   console.log(`🚀 Question Bank Exchange Server running on port ${PORT}`);

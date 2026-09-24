@@ -1,13 +1,17 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import mongoose from 'mongoose';
 import { fileURLToPath } from 'url';
 import { initialSemesters, initialSubjects, initialResources } from './seedData.js';
 import { ensureSamplePdfs } from './seedPdfs.js';
+import { uploadToCloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
+import { Resource, Subject, Semester, Report } from '../models/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DB_FILE = path.join(__dirname, 'db.json');
+const STORE_FILE = path.join(__dirname, 'store.json');
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
 
 const ALLOWED_SEMESTERS = ['3-1', '3-2', '4-1', '4-2'];
@@ -38,9 +42,11 @@ class DataStore {
     // Ensure uploads directory exists and has sample PDFs
     ensureSamplePdfs(UPLOADS_DIR);
 
-    if (fs.existsSync(DB_FILE)) {
+    const activeDbPath = fs.existsSync(STORE_FILE) ? STORE_FILE : (fs.existsSync(DB_FILE) ? DB_FILE : null);
+
+    if (activeDbPath) {
       try {
-        const raw = fs.readFileSync(DB_FILE, 'utf-8');
+        const raw = fs.readFileSync(activeDbPath, 'utf-8');
         const parsed = JSON.parse(raw);
         this.data = {
           semesters: Array.isArray(parsed.semesters) ? parsed.semesters.filter(s => ALLOWED_SEMESTERS.includes(s.name)) : [],
@@ -49,7 +55,6 @@ class DataStore {
           reports: Array.isArray(parsed.reports) ? parsed.reports : []
         };
         
-        // Populate hashes for existing resources if missing
         let updated = false;
         this.data.resources.forEach(res => {
           if (!res.fileHash && res.fileName) {
@@ -66,11 +71,44 @@ class DataStore {
         });
         if (updated) this.save();
       } catch (err) {
-        console.error('Error reading db.json, re-initializing with seed data:', err);
+        console.error('Error reading database file, re-initializing with seed data:', err);
         this.resetToSeed();
       }
     } else {
       this.resetToSeed();
+    }
+  }
+
+  async syncWithMongo() {
+    if (mongoose.connection.readyState !== 1) return;
+
+    try {
+      const mongoSemesters = await Semester.find({});
+      const mongoSubjects = await Subject.find({});
+      const mongoResources = await Resource.find({});
+      const mongoReports = await Report.find({});
+
+      // If MongoDB is completely empty, populate seed data into MongoDB
+      if (mongoSemesters.length === 0 && mongoSubjects.length === 0 && mongoResources.length === 0) {
+        console.log('🌱 Populating MongoDB with initial seed data...');
+        for (const sem of this.data.semesters) {
+          await Semester.updateOne({ id: sem.id }, { $set: sem }, { upsert: true });
+        }
+        for (const subj of this.data.subjects) {
+          await Subject.updateOne({ id: subj.id }, { $set: subj }, { upsert: true });
+        }
+        for (const res of this.data.resources) {
+          await Resource.updateOne({ id: res.id }, { $set: res }, { upsert: true });
+        }
+      } else {
+        // Load data from MongoDB into in-memory store
+        this.data.semesters = mongoSemesters.map(s => typeof s.toObject === 'function' ? s.toObject() : s);
+        this.data.subjects = mongoSubjects.map(s => typeof s.toObject === 'function' ? s.toObject() : s);
+        this.data.resources = mongoResources.map(r => typeof r.toObject === 'function' ? r.toObject() : r);
+        this.data.reports = mongoReports.map(rep => typeof rep.toObject === 'function' ? rep.toObject() : rep);
+      }
+    } catch (err) {
+      console.error('Error syncing store with MongoDB:', err.message);
     }
   }
 
@@ -81,7 +119,6 @@ class DataStore {
       resources: [...initialResources],
       reports: []
     };
-    // Populate hashes for seed resources
     this.data.resources.forEach(res => {
       if (res.fileName) {
         const filePath = path.join(UPLOADS_DIR, res.fileName);
@@ -94,10 +131,88 @@ class DataStore {
 
   save() {
     try {
-      fs.writeFileSync(DB_FILE, JSON.stringify(this.data, null, 2), 'utf-8');
+      const jsonStr = JSON.stringify(this.data, null, 2);
+      fs.writeFileSync(STORE_FILE, jsonStr, 'utf-8');
+      fs.writeFileSync(DB_FILE, jsonStr, 'utf-8');
     } catch (err) {
-      console.error('Failed to save to db.json:', err);
+      console.error('Failed to save store.json / db.json:', err);
     }
+  }
+
+  async migrateLocalFilesToCloudinary() {
+    if (!isCloudinaryConfigured()) {
+      console.log('⚠️ [Migration] Cloudinary environment variables (CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET) are not configured.');
+      console.log('ℹ️ [Migration] Local PDFs will remain in store.json until Cloudinary environment variables are set.');
+      return { migratedCount: 0, skippedCount: 0, failedCount: 0 };
+    }
+
+    const toMigrate = [];
+    let skippedCount = 0;
+
+    for (const res of this.data.resources) {
+      if (res.fileUrl && res.fileUrl.includes('res.cloudinary.com')) {
+        const match = res.fileUrl.match(/(https:\/\/res\.cloudinary\.com\/[^\s"']+)/);
+        if (match && match[1] && res.fileUrl !== match[1]) {
+          res.fileUrl = match[1];
+        }
+        skippedCount++;
+        continue;
+      }
+
+      if (res.fileUrl && res.fileUrl.startsWith('https://res.cloudinary.com/') && res.cloudinaryPublicId) {
+        skippedCount++;
+        continue;
+      }
+
+      toMigrate.push(res);
+    }
+
+    console.log(`[Migration] Found ${toMigrate.length} resources requiring migration`);
+
+    let migratedCount = 0;
+    let failedCount = 0;
+    let updated = false;
+
+    for (const res of toMigrate) {
+      const fileName = res.fileName || (res.fileUrl ? path.basename(res.fileUrl) : null);
+      if (!fileName) {
+        console.warn(`[Migration] Missing fileName for resource "${res.name}" (${res.id}). Skipping.`);
+        failedCount++;
+        continue;
+      }
+
+      const filePath = path.join(UPLOADS_DIR, fileName);
+      if (!fs.existsSync(filePath)) {
+        console.warn(`[Migration] Physical PDF missing for "${res.name}" (${fileName}) at ${filePath}. Preserving resource record.`);
+        failedCount++;
+        continue;
+      }
+
+      try {
+        console.log(`[Migration] Uploading ${fileName}`);
+        const cldRes = await uploadToCloudinary(filePath, fileName);
+        console.log(`[Migration] Uploaded successfully`);
+
+        res.fileUrl = cldRes.secure_url;
+        res.cloudinaryPublicId = cldRes.public_id;
+        res.fileName = fileName;
+        updated = true;
+
+        console.log(`[Migration] Updated resource ${res.id}`);
+        migratedCount++;
+      } catch (err) {
+        console.error(`[Migration] Upload failed for "${res.name}" (${fileName}): ${err.message}`);
+        failedCount++;
+      }
+    }
+
+    if (updated) {
+      this.save();
+      console.log('[Migration] Database files (store.json & db.json) successfully updated on disk.');
+    }
+
+    console.log(`[Migration] Completed: ${migratedCount} migrated, ${skippedCount} skipped, ${failedCount} failed`);
+    return { migratedCount, skippedCount, failedCount };
   }
 
   // Semesters
@@ -113,6 +228,11 @@ class DataStore {
     const newSem = { id, name, title: title || `Semester ${name}`, description: description || '' };
     this.data.semesters.push(newSem);
     this.save();
+
+    if (mongoose.connection.readyState === 1) {
+      Semester.create(newSem).catch(err => console.error('MongoDB Semester create error:', err.message));
+    }
+
     return newSem;
   }
 
@@ -137,6 +257,11 @@ class DataStore {
     const newSubj = { id, name, code: code || name.slice(0, 4).toUpperCase(), semester };
     this.data.subjects.push(newSubj);
     this.save();
+
+    if (mongoose.connection.readyState === 1) {
+      Subject.create(newSubj).catch(err => console.error('MongoDB Subject create error:', err.message));
+    }
+
     return newSubj;
   }
 
@@ -146,17 +271,20 @@ class DataStore {
 
     const removedSubject = this.data.subjects.splice(index, 1)[0];
 
-    // Cascade delete all resources belonging to this subject
     const relatedResources = this.data.resources.filter(r => r.subjectId === id);
     this.data.resources = this.data.resources.filter(r => r.subjectId !== id);
 
-    // Remove reports associated with deleted resources
     const removedResIds = new Set(relatedResources.map(r => r.id));
     this.data.reports = this.data.reports.filter(rep => !removedResIds.has(rep.resourceId));
 
     this.save();
 
-    // Clean up physical PDF files on disk for removed resources
+    if (mongoose.connection.readyState === 1) {
+      Subject.deleteOne({ id }).catch(err => console.error('MongoDB Subject delete error:', err.message));
+      Resource.deleteMany({ subjectId: id }).catch(err => console.error('MongoDB Resources delete error:', err.message));
+      Report.deleteMany({ resourceId: { $in: Array.from(removedResIds) } }).catch(err => console.error('MongoDB Reports delete error:', err.message));
+    }
+
     relatedResources.forEach(r => {
       if (r.fileName) {
         this.cleanupFileOnDisk(r.fileName);
@@ -197,6 +325,13 @@ class DataStore {
 
     if (removedSubjects.length > 0) {
       this.save();
+
+      if (mongoose.connection.readyState === 1) {
+        Subject.deleteMany({ id: { $in: ids } }).catch(err => console.error('MongoDB Subjects batch delete error:', err.message));
+        Resource.deleteMany({ subjectId: { $in: ids } }).catch(err => console.error('MongoDB Resources batch delete error:', err.message));
+        Report.deleteMany({ resourceId: { $in: Array.from(removedResIds) } }).catch(err => console.error('MongoDB Reports batch delete error:', err.message));
+      }
+
       removedResources.forEach(r => {
         if (r.fileName) {
           this.cleanupFileOnDisk(r.fileName);
@@ -209,6 +344,28 @@ class DataStore {
       deletedResourcesCount: removedResources.length,
       deletedResources: removedResources
     };
+  }
+
+  sanitizeResource(res) {
+    if (!res) return null;
+    const copy = typeof res.toObject === 'function' ? res.toObject() : { ...res };
+    
+    if (!copy.id && copy._id) {
+      copy.id = copy._id.toString();
+    }
+
+    if (copy.fileUrl) {
+      if (copy.fileUrl.includes('res.cloudinary.com')) {
+        const match = copy.fileUrl.match(/(https:\/\/res\.cloudinary\.com\/[^\s"']+)/);
+        if (match && match[1]) {
+          copy.fileUrl = match[1];
+        }
+      } else if (copy.fileUrl.includes('localhost:')) {
+        copy.fileUrl = copy.fileUrl.replace(/^https?:\/\/localhost:\d+/, '');
+      }
+    }
+
+    return copy;
   }
 
   // Resources
@@ -230,18 +387,22 @@ class DataStore {
     if (search) {
       const q = search.toLowerCase();
       list = list.filter(r => 
-        r.name.toLowerCase().includes(q) ||
+        (r.name && r.name.toLowerCase().includes(q)) ||
+        (r.title && r.title.toLowerCase().includes(q)) ||
         (r.subjectName && r.subjectName.toLowerCase().includes(q)) ||
         (r.category && r.category.toLowerCase().includes(q)) ||
         (r.semester && r.semester.toLowerCase().includes(q))
       );
     }
 
-    return list.sort((a, b) => new Date(b.uploadedDate) - new Date(a.uploadedDate));
+    return list
+      .map(r => this.sanitizeResource(r))
+      .sort((a, b) => new Date(b.uploadedDate || b.createdAt || 0) - new Date(a.uploadedDate || a.createdAt || 0));
   }
 
   getResourceById(id) {
-    return this.data.resources.find(r => r.id === id);
+    const res = this.data.resources.find(r => r.id === id || r._id === id || (r._id && r._id.toString() === id));
+    return this.sanitizeResource(res);
   }
 
   checkDuplicateResource({ fileHash, name, semester }) {
@@ -251,7 +412,7 @@ class DataStore {
     }
     if (name && semester) {
       const existingByNameSem = this.data.resources.find(r => 
-        r.semester === semester && r.name.trim().toLowerCase() === name.trim().toLowerCase()
+        r.semester === semester && (r.name || r.title || '').trim().toLowerCase() === name.trim().toLowerCase()
       );
       if (existingByNameSem) return existingByNameSem;
     }
@@ -265,10 +426,9 @@ class DataStore {
 
     const fileHash = filePath ? calculateFileHash(filePath) : null;
 
-    // Check duplicate
     const duplicate = this.checkDuplicateResource({ fileHash, name, semester });
     if (duplicate) {
-      const err = new Error(`This PDF already exists: "${duplicate.name}" (${duplicate.semester})`);
+      const err = new Error(`This PDF already exists: "${duplicate.name || duplicate.title}" (${duplicate.semester})`);
       err.isDuplicate = true;
       err.existingResource = duplicate;
       throw err;
@@ -298,11 +458,16 @@ class DataStore {
 
     this.data.resources.push(newResource);
     this.save();
+
+    if (mongoose.connection.readyState === 1) {
+      Resource.create(newResource).catch(err => console.error('MongoDB Resource create error:', err.message));
+    }
+
     return newResource;
   }
 
   updateResource(id, updateFields) {
-    const res = this.getResourceById(id);
+    const res = this.data.resources.find(r => r.id === id || r._id === id || (r._id && r._id.toString() === id));
     if (!res) return null;
 
     Object.assign(res, updateFields);
@@ -315,16 +480,25 @@ class DataStore {
     }
 
     this.save();
-    return res;
+
+    if (mongoose.connection.readyState === 1) {
+      Resource.updateOne({ $or: [{ id: id }, { _id: id }] }, { $set: updateFields }).catch(err => console.error('MongoDB Resource update error:', err.message));
+    }
+
+    return this.sanitizeResource(res);
   }
 
   incrementDownload(id) {
-    const res = this.getResourceById(id);
+    const res = this.data.resources.find(r => r.id === id || r._id === id || (r._id && r._id.toString() === id));
     if (res) {
       res.downloadsCount = (res.downloadsCount || 0) + 1;
       this.save();
+
+      if (mongoose.connection.readyState === 1) {
+        Resource.updateOne({ $or: [{ id: id }, { _id: id }] }, { $inc: { downloadsCount: 1 } }).catch(err => console.error('MongoDB Resource download inc error:', err.message));
+      }
     }
-    return res;
+    return this.sanitizeResource(res);
   }
 
   cleanupFileOnDisk(fileName) {
@@ -344,12 +518,17 @@ class DataStore {
   }
 
   deleteResource(id) {
-    const index = this.data.resources.findIndex(r => r.id === id);
+    const index = this.data.resources.findIndex(r => r.id === id || r._id === id || (r._id && r._id.toString() === id));
     if (index !== -1) {
       const removed = this.data.resources.splice(index, 1)[0];
-      // Clean reports for this resource
       this.data.reports = this.data.reports.filter(rep => rep.resourceId !== id);
       this.save();
+
+      if (mongoose.connection.readyState === 1) {
+        Resource.deleteOne({ $or: [{ id: id }, { _id: id }] }).catch(err => console.error('MongoDB Resource delete error:', err.message));
+        Report.deleteMany({ resourceId: id }).catch(err => console.error('MongoDB Report delete error:', err.message));
+      }
+
       if (removed && removed.fileName) {
         this.cleanupFileOnDisk(removed.fileName);
       }
@@ -364,7 +543,8 @@ class DataStore {
     const removedList = [];
 
     this.data.resources = this.data.resources.filter(r => {
-      if (idSet.has(r.id)) {
+      const rId = r.id || (r._id ? r._id.toString() : null);
+      if (idSet.has(rId)) {
         removedList.push(r);
         return false;
       }
@@ -375,6 +555,12 @@ class DataStore {
 
     if (removedList.length > 0) {
       this.save();
+
+      if (mongoose.connection.readyState === 1) {
+        Resource.deleteMany({ $or: [{ id: { $in: ids } }, { _id: { $in: ids } }] }).catch(err => console.error('MongoDB Resource batch delete error:', err.message));
+        Report.deleteMany({ resourceId: { $in: ids } }).catch(err => console.error('MongoDB Report batch delete error:', err.message));
+      }
+
       removedList.forEach(r => {
         if (r.fileName) {
           this.cleanupFileOnDisk(r.fileName);
@@ -396,13 +582,13 @@ class DataStore {
     const newReport = {
       id: reportId,
       resourceId,
-      resourceName: resource.name,
+      resourceName: resource.name || resource.title,
       semester: resource.semester,
       subjectName: resource.subjectName,
       reason: reason || 'Other',
       userMessage: userMessage || '',
       createdAt: new Date().toISOString(),
-      status: 'Pending' // 'Pending' | 'Reviewed' | 'Resolved'
+      status: 'Pending'
     };
 
     if (!Array.isArray(this.data.reports)) {
@@ -412,6 +598,11 @@ class DataStore {
     this.data.reports.unshift(newReport);
     resource.reportStatus = 'pending';
     this.save();
+
+    if (mongoose.connection.readyState === 1) {
+      Report.create(newReport).catch(err => console.error('MongoDB Report create error:', err.message));
+      Resource.updateOne({ $or: [{ id: resourceId }, { _id: resourceId }] }, { $set: { reportStatus: 'pending' } }).catch(err => console.error('MongoDB Resource reportStatus update error:', err.message));
+    }
 
     return newReport;
   }
@@ -428,7 +619,7 @@ class DataStore {
     const report = this.data.reports.find(rep => rep.id === reportId);
     if (!report) return null;
 
-    report.status = status; // 'Reviewed' | 'Resolved' | 'Pending'
+    report.status = status;
 
     const resource = this.getResourceById(report.resourceId);
     if (resource) {
@@ -436,6 +627,14 @@ class DataStore {
     }
 
     this.save();
+
+    if (mongoose.connection.readyState === 1) {
+      Report.updateOne({ id: reportId }, { $set: { status } }).catch(err => console.error('MongoDB Report status update error:', err.message));
+      if (report.resourceId) {
+        Resource.updateOne({ $or: [{ id: report.resourceId }, { _id: report.resourceId }] }, { $set: { reportStatus: status.toLowerCase() } }).catch(err => console.error('MongoDB Resource reportStatus update error:', err.message));
+      }
+    }
+
     return report;
   }
 
@@ -451,7 +650,6 @@ class DataStore {
     const totalDownloads = validResources.reduce((acc, r) => acc + (r.downloadsCount || 0), 0);
     const pendingReportsCount = (this.data.reports || []).filter(rep => rep.status === 'Pending').length;
 
-    // Semester PDF distribution breakdown
     const pdfsBySemester = {};
     ALLOWED_SEMESTERS.forEach(sem => {
       pdfsBySemester[sem] = validResources.filter(r => r.semester === sem).length;
@@ -470,4 +668,3 @@ class DataStore {
 }
 
 export const store = new DataStore();
-

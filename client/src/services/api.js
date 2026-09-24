@@ -4,7 +4,27 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 export const getFileUrl = (fileUrl) => {
   if (!fileUrl) return '';
-  if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) return fileUrl;
+
+  // Extract Cloudinary URL if prepended with any local host prefix
+  if (fileUrl.includes('res.cloudinary.com')) {
+    const match = fileUrl.match(/(https:\/\/res\.cloudinary\.com\/[^\s"']+)/);
+    if (match && match[1]) {
+      return match[1];
+    }
+  }
+
+  // Handle full HTTP/HTTPS URLs
+  if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
+    // If it contains localhost:5000, sanitize and map relative path to active server base
+    if (fileUrl.includes('localhost:5000') || fileUrl.includes('127.0.0.1:5000')) {
+      const serverUrl = API_BASE.replace(/\/api\/?$/, '');
+      const relativePath = fileUrl.replace(/^https?:\/\/[^\/]+/, '');
+      return `${serverUrl}${relativePath.startsWith('/') ? '' : '/'}${relativePath}`;
+    }
+    return fileUrl;
+  }
+
+  // Handle relative paths (e.g., /uploads/...)
   const serverUrl = API_BASE.replace(/\/api\/?$/, '');
   return `${serverUrl}${fileUrl.startsWith('/') ? '' : '/'}${fileUrl}`;
 };

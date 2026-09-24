@@ -28,7 +28,6 @@ export const uploadToCloudinary = async (filePath, originalName = '') => {
     throw new Error('Cloudinary environment variables (CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET) are not configured.');
   }
 
-  // Ensure Cloudinary is configured if variables were loaded dynamically
   cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
     api_key: process.env.CLOUDINARY_API_KEY,
@@ -36,12 +35,26 @@ export const uploadToCloudinary = async (filePath, originalName = '') => {
   });
 
   try {
-    const result = await cloudinary.uploader.upload(filePath, {
-      folder: 'qb_exchanger',
-      resource_type: 'raw',
-      use_filename: true,
-      unique_filename: true
-    });
+    const stats = fs.statSync(filePath);
+    let result;
+
+    // Use upload_large for files > 10 MB to support up to 25 MB uploads via chunking
+    if (stats.size > 10 * 1024 * 1024) {
+      result = await cloudinary.uploader.upload_large(filePath, {
+        folder: 'qb_exchanger',
+        resource_type: 'raw',
+        chunk_size: 6000000, // 6 MB chunk size
+        use_filename: true,
+        unique_filename: true
+      });
+    } else {
+      result = await cloudinary.uploader.upload(filePath, {
+        folder: 'qb_exchanger',
+        resource_type: 'raw',
+        use_filename: true,
+        unique_filename: true
+      });
+    }
 
     return {
       secure_url: result.secure_url,
@@ -67,8 +80,8 @@ export const deleteFromCloudinary = async (publicId) => {
   });
 
   try {
-    const result = await cloudinary.uploader.destroy(publicId, { resource_type: 'raw' });
-    if (result.result !== 'ok') {
+    const resRaw = await cloudinary.uploader.destroy(publicId, { resource_type: 'raw' });
+    if (resRaw.result !== 'ok') {
       await cloudinary.uploader.destroy(publicId, { resource_type: 'image' });
     }
     console.log(`🗑️ Deleted from Cloudinary: ${publicId}`);

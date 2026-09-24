@@ -9,3 +9,6 @@ server/node_modules/
 server/uploads/*
 !server/uploads/.gitkeep
 
+
+server/data/store.json
+server/data/db.json
