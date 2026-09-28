@@ -41,7 +41,7 @@ router.get('/:id', (req, res) => {
 });
 
 // POST /api/subjects (Create subject)
-router.post('/', (req, res) => {
+router.post('/', requireAdminAuth, (req, res) => {
   try {
     const { name, code, semester } = req.body;
     if (!name || !semester) {

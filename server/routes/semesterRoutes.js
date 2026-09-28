@@ -1,5 +1,6 @@
 import express from 'express';
 import { store } from '../data/store.js';
+import { requireAdminAuth } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
@@ -28,7 +29,7 @@ router.get('/', (req, res) => {
 });
 
 // POST /api/semesters (Admin)
-router.post('/', (req, res) => {
+router.post('/', requireAdminAuth, (req, res) => {
   try {
     const { name, title, description } = req.body;
     if (!name) {
