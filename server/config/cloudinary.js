@@ -18,6 +18,23 @@ if (isCloudinaryConfigured()) {
 }
 
 /**
+ * Extract human-readable error message from any Cloudinary SDK or API error object.
+ */
+const getErrorMessage = (err) => {
+  if (!err) return 'Unknown error during Cloudinary operation.';
+  if (typeof err === 'string') return err;
+  if (err.message && typeof err.message === 'string') return err.message;
+  if (err.error && typeof err.error.message === 'string') return err.error.message;
+  if (err.error && typeof err.error === 'string') return err.error;
+  if (err.http_code) return `Cloudinary HTTP Error ${err.http_code}`;
+  try {
+    const json = JSON.stringify(err);
+    if (json && json !== '{}') return json;
+  } catch (e) {}
+  return String(err);
+};
+
+/**
  * Upload local file to Cloudinary.
  * @param {string} filePath - Absolute path to temporary local file
  * @param {string} [originalName] - Original filename
@@ -38,22 +55,39 @@ export const uploadToCloudinary = async (filePath, originalName = '') => {
     const stats = fs.statSync(filePath);
     let result;
 
-    // Use upload_large for files > 10 MB to support up to 25 MB uploads via chunking
-    if (stats.size > 10 * 1024 * 1024) {
-      result = await cloudinary.uploader.upload_large(filePath, {
-        folder: 'qb_exchanger',
-        resource_type: 'raw',
-        chunk_size: 6000000, // 6 MB chunk size
-        use_filename: true,
-        unique_filename: true
+    const commonOptions = {
+      folder: 'qb_exchanger',
+      resource_type: 'raw',
+      use_filename: true,
+      unique_filename: true,
+      timeout: 600000
+    };
+
+    // Use upload_large for files > 5 MB to avoid ECONNRESET socket timeouts during monolithic uploads.
+    // NOTE: Cloudinary SDK's upload_large requires a callback function (error, result) to return a Promise.
+    if (stats.size > 5 * 1024 * 1024) {
+      result = await new Promise((resolve, reject) => {
+        cloudinary.uploader.upload_large(
+          filePath,
+          {
+            ...commonOptions,
+            chunk_size: 6000000 // 6 MB chunk size (Cloudinary requires chunks >= 5MB)
+          },
+          (error, res) => {
+            if (error) return reject(error);
+            resolve(res);
+          }
+        );
       });
     } else {
       result = await cloudinary.uploader.upload(filePath, {
-        folder: 'qb_exchanger',
-        resource_type: 'raw',
-        use_filename: true,
-        unique_filename: true
+        ...commonOptions,
+        timeout: 120000
       });
+    }
+
+    if (!result || !result.secure_url) {
+      throw new Error('Cloudinary upload response did not return a valid secure_url.');
     }
 
     return {
@@ -61,8 +95,9 @@ export const uploadToCloudinary = async (filePath, originalName = '') => {
       public_id: result.public_id
     };
   } catch (err) {
-    console.error('Cloudinary upload error:', err);
-    throw new Error(`Cloudinary upload failed: ${err.message}`);
+    const detail = getErrorMessage(err);
+    console.error('Cloudinary upload error details:', err);
+    throw new Error(detail);
   }
 };
 
@@ -86,6 +121,7 @@ export const deleteFromCloudinary = async (publicId) => {
     }
     console.log(`🗑️ Deleted from Cloudinary: ${publicId}`);
   } catch (err) {
-    console.error(`Failed to delete Cloudinary file (${publicId}):`, err.message);
+    const detail = getErrorMessage(err);
+    console.error(`Failed to delete Cloudinary file (${publicId}):`, detail);
   }
 };

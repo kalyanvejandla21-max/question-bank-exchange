@@ -15,8 +15,11 @@ export default function SemesterDetailPage() {
     async function fetchSemesterSubjects() {
       try {
         const res = await getSubjects(semesterName);
-        if (res.success) {
-          setSubjects(res.data);
+        const subjectsData = Array.isArray(res?.data)
+          ? res.data
+          : (Array.isArray(res?.data?.data) ? res.data.data : []);
+        if (res?.success || res?.data?.success || subjectsData.length > 0) {
+          setSubjects(subjectsData);
         }
       } catch (err) {
         console.error('Failed to fetch subjects:', err);

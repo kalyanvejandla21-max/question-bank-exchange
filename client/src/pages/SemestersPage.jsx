@@ -11,8 +11,11 @@ export default function SemestersPage() {
     async function fetchSemesters() {
       try {
         const res = await getSemesters();
-        if (res.success) {
-          setSemesters(res.data);
+        const semestersData = Array.isArray(res?.data) 
+          ? res.data 
+          : (Array.isArray(res?.data?.data) ? res.data.data : []);
+        if (res?.success || res?.data?.success || semestersData.length > 0) {
+          setSemesters(semestersData);
         }
       } catch (err) {
         console.error('Error fetching semesters:', err);

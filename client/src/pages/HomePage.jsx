@@ -1,206 +1,415 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { BookOpen, Upload, FileText, ArrowRight, CheckCircle2, Search, TrendingUp, Sparkles, Folder, Layers } from 'lucide-react';
-import { getSemesters, getResources, getAdminStats } from '../services/api';
+import { BookOpen, Upload, FileText, ArrowRight, Sparkles, Layers, ShieldCheck, Compass, Eye, Search, CheckCircle2 } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { getSemesters, getResources, getSubjects, getAdminStats } from '../services/api';
+import FlowField from '../components/FlowField';
 import SemesterCard from '../components/SemesterCard';
 import ResourceCard from '../components/ResourceCard';
+import SubjectCard from '../components/SubjectCard';
 import PdfViewerModal from '../components/PdfViewerModal';
 
 export default function HomePage() {
   const [semesters, setSemesters] = useState([]);
   const [recentResources, setRecentResources] = useState([]);
-  const [stats, setStats] = useState({ totalSemesters: 8, totalSubjects: 35, totalPdfs: 120, totalDownloads: 840 });
+  const [popularSubjects, setPopularSubjects] = useState([]);
+  const [stats, setStats] = useState({
+    totalSemesters: 4,
+    totalSubjects: 0,
+    totalPdfs: 0,
+    totalDownloads: 0
+  });
   const [loading, setLoading] = useState(true);
   const [viewingResource, setViewingResource] = useState(null);
 
   useEffect(() => {
     async function loadHomeData() {
       try {
+        setLoading(true);
+
+        // Fetch Semesters
         const semRes = await getSemesters();
-        if (semRes.success) setSemesters(semRes.data);
+        const semData = Array.isArray(semRes?.data)
+          ? semRes.data
+          : (Array.isArray(semRes?.data?.data) ? semRes.data.data : []);
 
+        // Default 3-1, 3-2, 4-1, 4-2 fallback if empty array returned
+        let finalSemesters = semData;
+        if (!finalSemesters || finalSemesters.length === 0) {
+          finalSemesters = [
+            { name: '3-1', title: 'Semester 3-1', description: 'Question Banks, Papers & Study Material for 3-1', subjectCount: 0, resourceCount: 0 },
+            { name: '3-2', title: 'Semester 3-2', description: 'Question Banks, Papers & Study Material for 3-2', subjectCount: 0, resourceCount: 0 },
+            { name: '4-1', title: 'Semester 4-1', description: 'Question Banks, Papers & Study Material for 4-1', subjectCount: 0, resourceCount: 0 },
+            { name: '4-2', title: 'Semester 4-2', description: 'Question Banks, Papers & Study Material for 4-2', subjectCount: 0, resourceCount: 0 }
+          ];
+        }
+        setSemesters(finalSemesters);
+
+        // Fetch Resources
         const resRes = await getResources();
-        if (resRes.success) setRecentResources(resRes.data.slice(0, 6));
+        const resData = Array.isArray(resRes?.data)
+          ? resRes.data
+          : (Array.isArray(resRes?.data?.data) ? resRes.data.data : []);
+        setRecentResources(resData.slice(0, 6));
 
-        const statRes = await getAdminStats();
-        if (statRes.success) setStats(statRes.data);
+        // Fetch Subjects
+        const subjRes = await getSubjects();
+        const subjData = Array.isArray(subjRes?.data)
+          ? subjRes.data
+          : (Array.isArray(subjRes?.data?.data) ? subjRes.data.data : []);
+        
+        // Sort popular subjects by resource count
+        const sortedSubjs = [...subjData].sort((a, b) => (b.resourceCount || 0) - (a.resourceCount || 0));
+        setPopularSubjects(sortedSubjs.slice(0, 6));
+
+        // Calculate Real Stats
+        const calculatedDownloads = resData.reduce((acc, r) => acc + (r.downloadsCount || 0), 0);
+        let finalStats = {
+          totalSemesters: finalSemesters.length,
+          totalSubjects: subjData.length,
+          totalPdfs: resData.length,
+          totalDownloads: calculatedDownloads
+        };
+
+        // Attempt fetching admin stats if available
+        try {
+          const statRes = await getAdminStats();
+          const statData = statRes?.data?.data || statRes?.data || statRes;
+          if (statData && typeof statData === 'object') {
+            finalStats = {
+              totalSemesters: statData.totalSemesters || finalStats.totalSemesters,
+              totalSubjects: statData.totalSubjects || finalStats.totalSubjects,
+              totalPdfs: statData.totalPdfs || finalStats.totalPdfs,
+              totalDownloads: statData.totalDownloads || finalStats.totalDownloads
+            };
+          }
+        } catch (e) {
+          // Unauthenticated or non-admin call expected; fallback to calculated real numbers
+        }
+
+        setStats(finalStats);
       } catch (err) {
         console.error('Failed to load homepage data:', err);
       } finally {
         setLoading(false);
       }
     }
+
     loadHomeData();
   }, []);
 
-  const resourceTypes = [
-    { title: 'Question Banks', desc: 'Comprehensive unit-wise & course question banks', icon: FileText, color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
-    { title: 'Previous Papers', desc: 'Semester end exam question papers with answer keys', icon: BookOpen, color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
-    { title: 'Important Questions', desc: 'Curated 2-mark & 10-mark exam preparation lists', icon: Sparkles, color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
-    { title: 'Unit-wise PDFs', desc: 'Clean unit lecture notes and formula sheets', icon: Folder, color: 'text-purple-400 bg-purple-500/10 border-purple-500/20' },
-    { title: 'Study Materials', desc: 'Complete course reference PDFs & textbooks', icon: Layers, color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20' }
+  const howItWorksSteps = [
+    {
+      step: '01',
+      title: 'Find',
+      description: 'Browse your semester and subject to locate verified question banks and notes.',
+      icon: Search,
+      badgeColor: 'text-sky-400 border-sky-500/20 bg-sky-500/10'
+    },
+    {
+      step: '02',
+      title: 'View',
+      description: 'Open question banks and study materials instantly with our fast PDF viewer.',
+      icon: Eye,
+      badgeColor: 'text-teal-400 border-teal-500/20 bg-teal-500/10'
+    },
+    {
+      step: '03',
+      title: 'Share',
+      description: 'Upload useful PDFs to help fellow students prepare for exams.',
+      icon: Upload,
+      badgeColor: 'text-indigo-400 border-indigo-500/20 bg-indigo-500/10'
+    }
   ];
 
   return (
-    <div className="space-y-16 pb-16">
+    <div className="space-y-20 pb-20 overflow-x-hidden">
       
-      {/* Hero Section */}
-      <section className="relative overflow-hidden py-16 sm:py-24 border-b border-slate-800/80 bg-gradient-to-b from-slate-900/90 via-slate-950 to-slate-950">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(14,165,233,0.15),rgba(255,255,255,0))]" />
-        
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center">
+      {/* HERO SECTION */}
+      <section className="relative min-h-[85vh] flex items-center justify-center py-20 border-b border-slate-800/80 bg-[#07090e] overflow-hidden">
+        {/* FlowField Canvas Background */}
+        <FlowField />
+
+        {/* Ambient Subtle Gradients */}
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#07090e]/60 to-[#07090e] pointer-events-none z-0" />
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-sky-500/10 rounded-full blur-[140px] pointer-events-none" />
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center w-full">
           
-          <div className="flex justify-center mb-6">
-            <div className="relative group">
-              <div className="absolute -inset-1 bg-gradient-to-r from-amber-500/30 to-sky-500/30 rounded-3xl blur-xl opacity-75 group-hover:opacity-100 transition duration-500"></div>
-              <img 
-                src="/logo.png" 
-                alt="QBank Gold Emblem Logo" 
-                className="relative w-28 h-28 sm:w-36 sm:h-36 object-contain rounded-2xl border border-amber-500/40 bg-slate-950 p-2 shadow-2xl shadow-amber-500/20 backdrop-blur-md transform group-hover:scale-105 transition-all duration-300"
-              />
-            </div>
-          </div>
+          {/* Trust/Status Badge */}
+          <motion.div
+            initial={{ opacity: 0, y: -15 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-900/90 border border-slate-800 text-xs text-slate-300 font-medium mb-8 shadow-xl backdrop-blur-md"
+          >
+            <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse"></span>
+            <span>Built for students • Find • Learn • Share</span>
+          </motion.div>
 
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-semibold mb-6">
-            <Sparkles className="w-3.5 h-3.5" />
-            Centralized College Academic Exchange Platform
-          </div>
+          {/* Hero Heading */}
+          <motion.h1
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.1 }}
+            className="text-4xl sm:text-6xl lg:text-7xl font-extrabold text-white tracking-tight leading-[1.1] max-w-4xl mx-auto mb-6"
+          >
+            Your Question Bank.<br />
+            <span className="bg-gradient-to-r from-sky-400 via-teal-300 to-indigo-400 bg-clip-text text-transparent">
+              All in One Place.
+            </span>
+          </motion.h1>
 
-          <h1 className="text-4xl sm:text-6xl font-extrabold text-white tracking-tight leading-tight max-w-4xl mx-auto mb-6">
-            QBank <span className="bg-gradient-to-r from-amber-400 via-amber-200 to-sky-400 bg-clip-text text-transparent">Exchanger</span>
-          </h1>
+          {/* Supporting Text */}
+          <motion.p
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+            className="text-base sm:text-xl text-slate-400 max-w-2xl mx-auto mb-10 leading-relaxed font-normal"
+          >
+            Find question banks, previous papers, important questions and study materials shared by your academic community.
+          </motion.p>
 
-          <p className="text-lg sm:text-xl text-slate-300 max-w-2xl mx-auto mb-10 leading-relaxed font-normal">
-            “All your semester question banks and academic PDFs in one place.”
-          </p>
-
-          {/* CTA Buttons */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 max-w-md mx-auto">
+          {/* Action Buttons */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.3 }}
+            className="flex flex-col sm:flex-row items-center justify-center gap-4 max-w-md mx-auto mb-16"
+          >
             <Link
               to="/semesters"
-              className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-base transition-all duration-200 shadow-xl shadow-sky-600/25 flex items-center justify-center gap-2 group"
+              className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white font-bold text-sm sm:text-base transition-all duration-200 shadow-xl shadow-sky-500/20 flex items-center justify-center gap-2 group border border-sky-400/30"
             >
               Explore Question Banks
-              <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
             </Link>
 
             <Link
               to="/upload"
-              className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-semibold text-base transition-colors flex items-center justify-center gap-2"
+              className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-slate-900/90 hover:bg-slate-800/90 border border-slate-800 text-slate-200 font-semibold text-sm sm:text-base transition-all duration-200 flex items-center justify-center gap-2 backdrop-blur-md shadow-lg"
             >
-              <Upload className="w-5 h-5 text-sky-400" />
-              Upload a Resource
+              <Upload className="w-4 h-4 text-teal-400" />
+              Upload PDF
             </Link>
-          </div>
+          </motion.div>
 
-          {/* Quick Metrics Bar */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto mt-16 pt-8 border-t border-slate-800/80 text-left">
-            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
-              <span className="text-2xl sm:text-3xl font-bold text-white block">{stats.totalSemesters || 8}</span>
-              <span className="text-xs text-slate-400 font-medium">Semesters Available</span>
+          {/* Platform Stats Grid */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.4 }}
+            className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto pt-8 border-t border-slate-800/60"
+          >
+            <div className="bg-[#0d111a]/80 border border-slate-800/80 rounded-2xl p-4 sm:p-5 text-left backdrop-blur-md">
+              <span className="text-2xl sm:text-4xl font-extrabold text-white block mb-0.5">
+                {stats.totalSemesters || 4}
+              </span>
+              <span className="text-xs text-slate-400 font-medium">Semesters</span>
             </div>
-            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
-              <span className="text-2xl sm:text-3xl font-bold text-white block">{stats.totalSubjects || 35}</span>
-              <span className="text-xs text-slate-400 font-medium">Academic Subjects</span>
+
+            <div className="bg-[#0d111a]/80 border border-slate-800/80 rounded-2xl p-4 sm:p-5 text-left backdrop-blur-md">
+              <span className="text-2xl sm:text-4xl font-extrabold text-white block mb-0.5">
+                {stats.totalSubjects || 0}
+              </span>
+              <span className="text-xs text-slate-400 font-medium">Subjects</span>
             </div>
-            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
-              <span className="text-2xl sm:text-3xl font-bold text-sky-400 block">{stats.totalPdfs || 120}</span>
-              <span className="text-xs text-slate-400 font-medium">Verified PDF Resources</span>
+
+            <div className="bg-[#0d111a]/80 border border-slate-800/80 rounded-2xl p-4 sm:p-5 text-left backdrop-blur-md">
+              <span className="text-2xl sm:text-4xl font-extrabold text-sky-400 block mb-0.5">
+                {stats.totalPdfs || 0}
+              </span>
+              <span className="text-xs text-slate-400 font-medium">PDF Resources</span>
             </div>
-            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
-              <span className="text-2xl sm:text-3xl font-bold text-emerald-400 block">{stats.totalDownloads || 840}</span>
-              <span className="text-xs text-slate-400 font-medium">Student Downloads</span>
+
+            <div className="bg-[#0d111a]/80 border border-slate-800/80 rounded-2xl p-4 sm:p-5 text-left backdrop-blur-md">
+              <span className="text-2xl sm:text-4xl font-extrabold text-teal-400 block mb-0.5">
+                {stats.totalDownloads || 0}
+              </span>
+              <span className="text-xs text-slate-400 font-medium">Downloads</span>
             </div>
-          </div>
+          </motion.div>
 
         </div>
       </section>
 
-      {/* Browse by Semester Section */}
+      {/* 1. BROWSE BY SEMESTER */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between mb-8">
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="flex flex-col sm:flex-row items-start sm:items-end justify-between mb-8 pb-4 border-b border-slate-800/60"
+        >
           <div>
-            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-2">Browse by Semester</h2>
-            <p className="text-sm text-slate-400">Select your semester to access course subjects and question papers.</p>
+            <div className="flex items-center gap-2 text-sky-400 text-xs font-bold uppercase tracking-wider mb-1">
+              <BookOpen className="w-3.5 h-3.5" />
+              Semester Catalog
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              Browse by Semester
+            </h2>
           </div>
-          <Link to="/semesters" className="text-sky-400 text-sm font-semibold hover:underline flex items-center gap-1 mt-2 sm:mt-0">
-            View All 4 Semesters <ArrowRight className="w-4 h-4" />
+          <Link 
+            to="/semesters" 
+            className="text-sky-400 text-xs font-bold hover:text-sky-300 flex items-center gap-1 mt-3 sm:mt-0 transition-colors"
+          >
+            View All Semesters <ArrowRight className="w-3.5 h-3.5" />
           </Link>
-        </div>
+        </motion.div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {loading ? (
             Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-44 rounded-2xl bg-slate-900 animate-pulse border border-slate-800" />
+              <div key={i} className="h-48 rounded-2xl bg-[#0d111a] animate-pulse border border-slate-800" />
             ))
           ) : (
             semesters.map((sem) => (
-              <SemesterCard key={sem.id} semester={sem} />
+              <SemesterCard key={sem.id || sem.name} semester={sem} />
             ))
           )}
         </div>
       </section>
 
-      {/* What You Can Find Section */}
+      {/* 2. RECENTLY ADDED */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-8 sm:p-12 relative overflow-hidden">
-          <div className="max-w-3xl mb-10">
-            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3">What You Can Find</h2>
-            <p className="text-slate-400 text-sm sm:text-base leading-relaxed">
-              Every document is categorized for fast exam preparation. Download directly or preview inside your browser without forcing downloads.
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="flex flex-col sm:flex-row items-start sm:items-end justify-between mb-8 pb-4 border-b border-slate-800/60"
+        >
+          <div>
+            <div className="flex items-center gap-2 text-teal-400 text-xs font-bold uppercase tracking-wider mb-1">
+              <Sparkles className="w-3.5 h-3.5" />
+              Fresh Additions
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              Recently Added PDFs
+            </h2>
+          </div>
+          <Link 
+            to="/search" 
+            className="text-sky-400 text-xs font-bold hover:text-sky-300 flex items-center gap-1 mt-3 sm:mt-0 transition-colors"
+          >
+            Browse All Resources <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
+        </motion.div>
+
+        {loading ? (
+          <div className="space-y-4">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="h-24 rounded-2xl bg-[#0d111a] animate-pulse border border-slate-800" />
+            ))}
+          </div>
+        ) : recentResources.length > 0 ? (
+          <div className="space-y-4">
+            {recentResources.map((res) => (
+              <ResourceCard
+                key={res.id}
+                resource={res}
+                onView={(r) => setViewingResource(r)}
+                onDownloadSuccess={(id) => {
+                  setRecentResources(prev =>
+                    prev.map(item => item.id === id ? { ...item, downloadsCount: (item.downloadsCount || 0) + 1 } : item)
+                  );
+                  setStats(prev => ({ ...prev, totalDownloads: prev.totalDownloads + 1 }));
+                }}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="bg-[#0d111a]/80 border border-slate-800/80 rounded-2xl p-8 text-center text-slate-400 text-sm">
+            No resources uploaded yet. Be the first to upload a question bank PDF!
+          </div>
+        )}
+      </section>
+
+      {/* 3. POPULAR SUBJECTS */}
+      {popularSubjects.length > 0 && (
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <motion.div
+            initial={{ opacity: 0, y: 15 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5 }}
+            className="flex flex-col sm:flex-row items-start sm:items-end justify-between mb-8 pb-4 border-b border-slate-800/60"
+          >
+            <div>
+              <div className="flex items-center gap-2 text-indigo-400 text-xs font-bold uppercase tracking-wider mb-1">
+                <Layers className="w-3.5 h-3.5" />
+                Featured Courses
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                Popular Subjects
+              </h2>
+            </div>
+          </motion.div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {popularSubjects.map((subject) => (
+              <SubjectCard key={subject.id} subject={subject} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 4. HOW IT WORKS */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="bg-[#0d111a]/90 border border-slate-800/90 rounded-3xl p-8 sm:p-12 relative overflow-hidden shadow-2xl">
+          <div className="max-w-2xl mb-10">
+            <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-sky-400 mb-2">
+              <Compass className="w-4 h-4" />
+              Simple Process
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight mb-3">
+              How QB Exchanger Works
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
+              Designed for fast exam preparation. Access study materials in three simple steps.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {resourceTypes.map((type, idx) => {
-              const IconComp = type.icon;
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative z-10">
+            {howItWorksSteps.map((item, idx) => {
+              const IconComponent = item.icon;
               return (
-                <div key={idx} className="bg-slate-950/80 border border-slate-800/80 rounded-2xl p-6 transition-all hover:border-slate-700">
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center border mb-4 ${type.color}`}>
-                    <IconComp className="w-6 h-6" />
+                <motion.div
+                  key={idx}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.5, delay: idx * 0.1 }}
+                  className="bg-[#07090e]/90 border border-slate-800/80 rounded-2xl p-6 relative flex flex-col justify-between hover:border-slate-700 transition-colors"
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-6">
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${item.badgeColor}`}>
+                        <IconComponent className="w-6 h-6" />
+                      </div>
+                      <span className="text-3xl font-extrabold text-slate-700 font-mono">
+                        {item.step}
+                      </span>
+                    </div>
+
+                    <h3 className="text-lg font-bold text-white mb-2">
+                      {item.title}
+                    </h3>
+
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      {item.description}
+                    </p>
                   </div>
-                  <h3 className="text-lg font-bold text-white mb-1.5">{type.title}</h3>
-                  <p className="text-xs text-slate-400 leading-relaxed">{type.desc}</p>
-                </div>
+                </motion.div>
               );
             })}
           </div>
         </div>
       </section>
 
-      {/* Recent Uploads Showcase */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-1">Recently Added</h2>
-            <p className="text-sm text-slate-400">Newly added question banks, previous papers, and study material PDFs.</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <Link to="/search" className="text-sky-400 text-xs font-semibold hover:underline flex items-center gap-1">
-              View All Resources <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-            <Link to="/upload" className="hidden sm:flex px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-sky-400 text-xs font-semibold items-center gap-1.5">
-              <Upload className="w-3.5 h-3.5" />
-              Share your PDF
-            </Link>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          {recentResources.map((res) => (
-            <ResourceCard
-              key={res.id}
-              resource={res}
-              onView={(r) => setViewingResource(r)}
-              onDownloadSuccess={(id) => {
-                setRecentResources(prev => prev.map(item => item.id === id ? { ...item, downloadsCount: (item.downloadsCount || 0) + 1 } : item));
-              }}
-            />
-          ))}
-        </div>
-      </section>
-
-      {/* PDF Viewer Modal */}
+      {/* PDF VIEWER MODAL */}
       {viewingResource && (
         <PdfViewerModal
           resource={viewingResource}

@@ -117,18 +117,14 @@ router.post('/upload', (req, res) => {
           const cldRes = await uploadToCloudinary(req.file.path, req.file.originalname);
           fileUrl = cldRes.secure_url;
           cloudinaryPublicId = cldRes.public_id;
-          
-          // Delete temporary file from local server disk immediately
-          if (fs.existsSync(req.file.path)) {
-            try { fs.unlinkSync(req.file.path); } catch (e) {}
-          }
         } catch (cldErr) {
           if (fs.existsSync(req.file.path)) {
             try { fs.unlinkSync(req.file.path); } catch (e) {}
           }
+          const errMsg = cldErr?.message || 'Cloudinary upload failed.';
           return res.status(500).json({
             success: false,
-            message: `Cloudinary Storage Error: ${cldErr.message}`
+            message: `Cloudinary Storage Error: ${errMsg}`
           });
         }
       }
@@ -144,6 +140,11 @@ router.post('/upload', (req, res) => {
         filePath: req.file.path,
         cloudinaryPublicId
       });
+
+      // Delete temporary local file after saving resource metadata
+      if (fs.existsSync(req.file.path)) {
+        try { fs.unlinkSync(req.file.path); } catch (e) {}
+      }
 
       res.status(201).json({
         success: true,
