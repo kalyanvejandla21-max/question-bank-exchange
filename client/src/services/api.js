@@ -1,6 +1,20 @@
 import axios from 'axios';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const getApiBaseUrl = () => {
+  let url = import.meta.env.VITE_API_URL;
+  if (!url) {
+    url = import.meta.env.DEV
+      ? 'http://localhost:5000/api'
+      : 'https://question-bank-exchange.onrender.com/api';
+  }
+  url = url.trim().replace(/\/+$/, '');
+  if (!url.endsWith('/api')) {
+    url = `${url}/api`;
+  }
+  return url;
+};
+
+const API_BASE = getApiBaseUrl();
 
 export const getFileUrl = (fileUrl) => {
   if (!fileUrl) return '';
@@ -15,7 +29,7 @@ export const getFileUrl = (fileUrl) => {
 
   // Handle full HTTP/HTTPS URLs
   if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
-    // If it contains localhost:5000, sanitize and map relative path to active server base
+    // If it contains localhost:5000 or 127.0.0.1:5000, sanitize and map relative path to active server base
     if (fileUrl.includes('localhost:5000') || fileUrl.includes('127.0.0.1:5000')) {
       const serverUrl = API_BASE.replace(/\/api\/?$/, '');
       const relativePath = fileUrl.replace(/^https?:\/\/[^\/]+/, '');
