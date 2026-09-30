@@ -8,7 +8,18 @@ const resourceSchema = new mongoose.Schema({
   subjectName: { type: String },
   category: { type: String, required: true },
   fileName: { type: String },
-  fileUrl: { type: String, required: true },
+  fileUrl: {
+    type: String,
+    required: true,
+    validate: {
+      validator: function(v) {
+        if (!v) return false;
+        if (v.startsWith('/uploads/')) return false;
+        return true;
+      },
+      message: props => `Invalid resource URL '${props.value}': Local /uploads/ paths are not allowed.`
+    }
+  },
   fileSize: { type: String },
   fileHash: { type: String },
   cloudinaryPublicId: { type: String, default: null },

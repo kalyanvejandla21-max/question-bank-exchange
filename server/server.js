@@ -35,6 +35,14 @@ app.use(express.urlencoded({ limit: '100mb', extended: true }));
 const uploadsPath = path.join(__dirname, 'uploads');
 app.use('/uploads', express.static(uploadsPath));
 
+// Disable HTTP Caching for API routes to prevent stale GET responses after mutations
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
+
 // API Routes
 app.use('/api/semesters', semesterRoutes);
 app.use('/api/subjects', subjectRoutes);

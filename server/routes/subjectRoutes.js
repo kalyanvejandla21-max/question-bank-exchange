@@ -41,13 +41,13 @@ router.get('/:id', (req, res) => {
 });
 
 // POST /api/subjects (Create subject)
-router.post('/', requireAdminAuth, (req, res) => {
+router.post('/', requireAdminAuth, async (req, res) => {
   try {
     const { name, code, semester } = req.body;
     if (!name || !semester) {
       return res.status(400).json({ success: false, message: 'Subject name and semester are required' });
     }
-    const newSubject = store.addSubject({ name, code, semester });
+    const newSubject = await store.addSubject({ name, code, semester });
     res.status(201).json({ success: true, data: newSubject });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

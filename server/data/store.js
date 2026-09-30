@@ -102,10 +102,26 @@ class DataStore {
         }
       } else {
         // Load data from MongoDB into in-memory store
-        this.data.semesters = mongoSemesters.map(s => typeof s.toObject === 'function' ? s.toObject() : s);
-        this.data.subjects = mongoSubjects.map(s => typeof s.toObject === 'function' ? s.toObject() : s);
-        this.data.resources = mongoResources.map(r => typeof r.toObject === 'function' ? r.toObject() : r);
-        this.data.reports = mongoReports.map(rep => typeof rep.toObject === 'function' ? rep.toObject() : rep);
+        this.data.semesters = mongoSemesters.map(s => {
+          const obj = typeof s.toObject === 'function' ? s.toObject() : s;
+          if (!obj.id && obj._id) obj.id = obj._id.toString();
+          return obj;
+        });
+        this.data.subjects = mongoSubjects.map(s => {
+          const obj = typeof s.toObject === 'function' ? s.toObject() : s;
+          if (!obj.id && obj._id) obj.id = obj._id.toString();
+          return obj;
+        });
+        this.data.resources = mongoResources.map(r => {
+          const obj = typeof r.toObject === 'function' ? r.toObject() : r;
+          if (!obj.id && obj._id) obj.id = obj._id.toString();
+          return obj;
+        });
+        this.data.reports = mongoReports.map(rep => {
+          const obj = typeof rep.toObject === 'function' ? rep.toObject() : rep;
+          if (!obj.id && obj._id) obj.id = obj._id.toString();
+          return obj;
+        });
       }
     } catch (err) {
       console.error('Error syncing store with MongoDB:', err.message);
@@ -220,7 +236,7 @@ class DataStore {
     return this.data.semesters.filter(s => ALLOWED_SEMESTERS.includes(s.name));
   }
 
-  addSemester({ name, title, description }) {
+  async addSemester({ name, title, description }) {
     if (!ALLOWED_SEMESTERS.includes(name)) {
       throw new Error(`Invalid semester. Allowed semesters are: ${ALLOWED_SEMESTERS.join(', ')}`);
     }
@@ -230,7 +246,7 @@ class DataStore {
     this.save();
 
     if (mongoose.connection.readyState === 1) {
-      Semester.create(newSem).catch(err => console.error('MongoDB Semester create error:', err.message));
+      await Semester.create(newSem);
     }
 
     return newSem;
@@ -249,7 +265,7 @@ class DataStore {
     return this.data.subjects.find(s => s.id === id);
   }
 
-  addSubject({ name, code, semester }) {
+  async addSubject({ name, code, semester }) {
     if (!ALLOWED_SEMESTERS.includes(semester)) {
       throw new Error(`Invalid semester. Allowed semesters are: ${ALLOWED_SEMESTERS.join(', ')}`);
     }
@@ -259,31 +275,51 @@ class DataStore {
     this.save();
 
     if (mongoose.connection.readyState === 1) {
-      Subject.create(newSubj).catch(err => console.error('MongoDB Subject create error:', err.message));
+      await Subject.create(newSubj);
     }
 
     return newSubj;
   }
 
-  deleteSubject(id) {
-    const index = this.data.subjects.findIndex(s => s.id === id);
-    if (index === -1) return null;
+  async deleteSubject(id) {
+    const stringId = String(id);
+    console.log(`[DataStore.deleteSubject] Target ID: "${stringId}"`);
 
-    const removedSubject = this.data.subjects.splice(index, 1)[0];
+    const index = this.data.subjects.findIndex(s => s.id === stringId || (s._id && s._id.toString() === stringId));
+    const removedSubject = index !== -1 ? this.data.subjects[index] : null;
 
-    const relatedResources = this.data.resources.filter(r => r.subjectId === id);
-    this.data.resources = this.data.resources.filter(r => r.subjectId !== id);
-
-    const removedResIds = new Set(relatedResources.map(r => r.id));
-    this.data.reports = this.data.reports.filter(rep => !removedResIds.has(rep.resourceId));
-
-    this.save();
+    const relatedResources = this.data.resources.filter(r => r.subjectId === stringId);
+    const removedResIds = new Set(relatedResources.map(r => r.id || (r._id ? r._id.toString() : null)).filter(Boolean));
 
     if (mongoose.connection.readyState === 1) {
-      Subject.deleteOne({ id }).catch(err => console.error('MongoDB Subject delete error:', err.message));
-      Resource.deleteMany({ subjectId: id }).catch(err => console.error('MongoDB Resources delete error:', err.message));
-      Report.deleteMany({ resourceId: { $in: Array.from(removedResIds) } }).catch(err => console.error('MongoDB Reports delete error:', err.message));
+      const isHex24 = /^[0-9a-fA-F]{24}$/.test(stringId);
+      const orConditions = [{ id: stringId }];
+      if (isHex24) {
+        orConditions.push({ _id: new mongoose.Types.ObjectId(stringId) });
+      }
+      if (removedSubject && removedSubject._id && /^[0-9a-fA-F]{24}$/.test(removedSubject._id.toString())) {
+        orConditions.push({ _id: new mongoose.Types.ObjectId(removedSubject._id.toString()) });
+      }
+
+      console.log(`[MongoDB Delete Subject] Querying Subject.deleteOne with $or:`, orConditions);
+      const subjDeleteRes = await Subject.deleteOne({ $or: orConditions });
+      console.log(`[MongoDB Delete Subject] Result: deletedCount=${subjDeleteRes.deletedCount}`);
+
+      const resDeleteRes = await Resource.deleteMany({ subjectId: stringId });
+      console.log(`[MongoDB Delete Subject] Deleted Associated Resources Count: ${resDeleteRes.deletedCount}`);
+
+      if (removedResIds.size > 0) {
+        const resIdList = Array.from(removedResIds);
+        await Report.deleteMany({ resourceId: { $in: resIdList } });
+      }
     }
+
+    if (index !== -1) {
+      this.data.subjects.splice(index, 1);
+    }
+    this.data.resources = this.data.resources.filter(r => r.subjectId !== stringId);
+    this.data.reports = this.data.reports.filter(rep => !removedResIds.has(rep.resourceId));
+    this.save();
 
     relatedResources.forEach(r => {
       if (r.fileName) {
@@ -292,52 +328,84 @@ class DataStore {
     });
 
     return {
-      subject: removedSubject,
+      subject: removedSubject || { id: stringId },
       deletedResourcesCount: relatedResources.length,
       deletedResources: relatedResources
     };
   }
 
-  deleteSubjectsBatch(ids = []) {
+  async deleteSubjectsBatch(ids = []) {
     if (!Array.isArray(ids) || ids.length === 0) return { count: 0, deletedResourcesCount: 0, deletedResources: [] };
-    const idSet = new Set(ids);
+    const stringIds = ids.map(id => String(id));
+    console.log(`[DataStore.deleteSubjectsBatch] Target Subject IDs (${stringIds.length}):`, stringIds);
+
+    const idSet = new Set(stringIds);
 
     const removedSubjects = [];
-    this.data.subjects = this.data.subjects.filter(s => {
-      if (idSet.has(s.id)) {
+    this.data.subjects.forEach(s => {
+      const sId = s.id || (s._id ? s._id.toString() : null);
+      if (sId && (idSet.has(sId) || (s._id && idSet.has(s._id.toString())))) {
         removedSubjects.push(s);
-        return false;
       }
-      return true;
     });
 
     const removedResources = [];
-    this.data.resources = this.data.resources.filter(r => {
-      if (idSet.has(r.subjectId)) {
+    this.data.resources.forEach(r => {
+      if (idSet.has(String(r.subjectId))) {
         removedResources.push(r);
+      }
+    });
+
+    const removedResIds = new Set(removedResources.map(r => r.id || (r._id ? r._id.toString() : null)).filter(Boolean));
+
+    if (mongoose.connection.readyState === 1) {
+      const orConditions = [{ id: { $in: stringIds } }];
+
+      const objectIds = [];
+      stringIds.forEach(id => {
+        if (/^[0-9a-fA-F]{24}$/.test(id)) {
+          objectIds.push(new mongoose.Types.ObjectId(id));
+        }
+      });
+      removedSubjects.forEach(s => {
+        if (s._id && /^[0-9a-fA-F]{24}$/.test(s._id.toString())) {
+          objectIds.push(new mongoose.Types.ObjectId(s._id.toString()));
+        }
+      });
+
+      if (objectIds.length > 0) {
+        orConditions.push({ _id: { $in: objectIds } });
+      }
+
+      console.log(`[MongoDB Batch Delete Subjects] Querying Subject.deleteMany with $or:`, orConditions);
+      const subjDeleteRes = await Subject.deleteMany({ $or: orConditions });
+      console.log(`[MongoDB Batch Delete Subjects] Result: deletedCount=${subjDeleteRes.deletedCount}`);
+
+      const resDeleteRes = await Resource.deleteMany({ subjectId: { $in: stringIds } });
+      console.log(`[MongoDB Batch Delete Subjects] Deleted Associated Resources Count: ${resDeleteRes.deletedCount}`);
+
+      if (removedResIds.size > 0) {
+        await Report.deleteMany({ resourceId: { $in: Array.from(removedResIds) } });
+      }
+    }
+
+    this.data.subjects = this.data.subjects.filter(s => {
+      const sId = s.id || (s._id ? s._id.toString() : null);
+      if (sId && (idSet.has(sId) || (s._id && idSet.has(s._id.toString())))) {
         return false;
       }
       return true;
     });
 
-    const removedResIds = new Set(removedResources.map(r => r.id));
+    this.data.resources = this.data.resources.filter(r => !idSet.has(String(r.subjectId)));
     this.data.reports = this.data.reports.filter(rep => !removedResIds.has(rep.resourceId));
+    this.save();
 
-    if (removedSubjects.length > 0) {
-      this.save();
-
-      if (mongoose.connection.readyState === 1) {
-        Subject.deleteMany({ id: { $in: ids } }).catch(err => console.error('MongoDB Subjects batch delete error:', err.message));
-        Resource.deleteMany({ subjectId: { $in: ids } }).catch(err => console.error('MongoDB Resources batch delete error:', err.message));
-        Report.deleteMany({ resourceId: { $in: Array.from(removedResIds) } }).catch(err => console.error('MongoDB Reports batch delete error:', err.message));
+    removedResources.forEach(r => {
+      if (r.fileName) {
+        this.cleanupFileOnDisk(r.fileName);
       }
-
-      removedResources.forEach(r => {
-        if (r.fileName) {
-          this.cleanupFileOnDisk(r.fileName);
-        }
-      });
-    }
+    });
 
     return {
       count: removedSubjects.length,
@@ -419,9 +487,13 @@ class DataStore {
     return null;
   }
 
-  addResource({ name, semester, subjectId, category, fileName, fileUrl, fileSize, filePath, cloudinaryPublicId }) {
+  async addResource({ name, semester, subjectId, category, fileName, fileUrl, fileSize, filePath, cloudinaryPublicId }) {
     if (!ALLOWED_SEMESTERS.includes(semester)) {
       throw new Error(`Invalid semester. Allowed semesters are: ${ALLOWED_SEMESTERS.join(', ')}`);
+    }
+
+    if (!fileUrl || fileUrl.startsWith('/uploads/') || fileUrl.includes('localhost')) {
+      throw new Error('Resource fileUrl must be a valid Cloudinary HTTPS URL. Storing local /uploads/ paths is prohibited.');
     }
 
     const fileHash = filePath ? calculateFileHash(filePath) : null;
@@ -460,7 +532,7 @@ class DataStore {
     this.save();
 
     if (mongoose.connection.readyState === 1) {
-      Resource.create(newResource).catch(err => console.error('MongoDB Resource create error:', err.message));
+      await Resource.create(newResource);
     }
 
     return newResource;
@@ -482,7 +554,11 @@ class DataStore {
     this.save();
 
     if (mongoose.connection.readyState === 1) {
-      Resource.updateOne({ $or: [{ id: id }, { _id: id }] }, { $set: updateFields }).catch(err => console.error('MongoDB Resource update error:', err.message));
+      const stringId = String(id);
+      const isHex24 = /^[0-9a-fA-F]{24}$/.test(stringId);
+      const orConditions = [{ id: stringId }];
+      if (isHex24) orConditions.push({ _id: new mongoose.Types.ObjectId(stringId) });
+      Resource.updateOne({ $or: orConditions }, { $set: updateFields }).catch(err => console.error('MongoDB Resource update error:', err.message));
     }
 
     return this.sanitizeResource(res);
@@ -495,7 +571,11 @@ class DataStore {
       this.save();
 
       if (mongoose.connection.readyState === 1) {
-        Resource.updateOne({ $or: [{ id: id }, { _id: id }] }, { $inc: { downloadsCount: 1 } }).catch(err => console.error('MongoDB Resource download inc error:', err.message));
+        const stringId = String(id);
+        const isHex24 = /^[0-9a-fA-F]{24}$/.test(stringId);
+        const orConditions = [{ id: stringId }];
+        if (isHex24) orConditions.push({ _id: new mongoose.Types.ObjectId(stringId) });
+        Resource.updateOne({ $or: orConditions }, { $inc: { downloadsCount: 1 } }).catch(err => console.error('MongoDB Resource download inc error:', err.message));
       }
     }
     return this.sanitizeResource(res);
@@ -517,56 +597,118 @@ class DataStore {
     }
   }
 
-  deleteResource(id) {
-    const index = this.data.resources.findIndex(r => r.id === id || r._id === id || (r._id && r._id.toString() === id));
-    if (index !== -1) {
-      const removed = this.data.resources.splice(index, 1)[0];
-      this.data.reports = this.data.reports.filter(rep => rep.resourceId !== id);
-      this.save();
+  async deleteResource(id) {
+    const stringId = String(id);
+    console.log(`[DataStore.deleteResource] Target ID: "${stringId}"`);
 
-      if (mongoose.connection.readyState === 1) {
-        Resource.deleteOne({ $or: [{ id: id }, { _id: id }] }).catch(err => console.error('MongoDB Resource delete error:', err.message));
-        Report.deleteMany({ resourceId: id }).catch(err => console.error('MongoDB Report delete error:', err.message));
+    const index = this.data.resources.findIndex(r => 
+      r.id === stringId || 
+      (r._id && r._id.toString() === stringId)
+    );
+
+    let removed = index !== -1 ? this.data.resources[index] : null;
+
+    if (mongoose.connection.readyState === 1) {
+      const isHex24 = /^[0-9a-fA-F]{24}$/.test(stringId);
+      const orConditions = [{ id: stringId }];
+      if (isHex24) {
+        orConditions.push({ _id: new mongoose.Types.ObjectId(stringId) });
+      }
+      if (removed && removed._id && removed._id.toString() !== stringId && /^[0-9a-fA-F]{24}$/.test(removed._id.toString())) {
+        orConditions.push({ _id: new mongoose.Types.ObjectId(removed._id.toString()) });
       }
 
-      if (removed && removed.fileName) {
-        this.cleanupFileOnDisk(removed.fileName);
+      console.log(`[MongoDB Resource Delete] Querying deleteOne with $or:`, orConditions);
+      const mongoResult = await Resource.deleteOne({ $or: orConditions });
+      console.log(`[MongoDB Resource Delete] Result: deletedCount=${mongoResult.deletedCount}`);
+
+      const repConditions = [{ resourceId: stringId }];
+      if (removed && removed.id && removed.id !== stringId) {
+        repConditions.push({ resourceId: String(removed.id) });
       }
-      return removed;
+      await Report.deleteMany({ $or: repConditions });
+
+      if (mongoResult.deletedCount === 0 && !removed) {
+        return null;
+      }
     }
-    return null;
+
+    if (index !== -1) {
+      this.data.resources.splice(index, 1);
+      this.data.reports = this.data.reports.filter(rep => rep.resourceId !== stringId && (removed ? rep.resourceId !== removed.id : true));
+      this.save();
+    }
+
+    if (removed && removed.fileName) {
+      this.cleanupFileOnDisk(removed.fileName);
+    }
+
+    return removed || { id: stringId };
   }
 
-  deleteResourcesBatch(ids = []) {
+  async deleteResourcesBatch(ids = []) {
     if (!Array.isArray(ids) || ids.length === 0) return [];
-    const idSet = new Set(ids);
-    const removedList = [];
+    
+    const stringIds = ids.map(id => String(id));
+    console.log(`[DataStore.deleteResourcesBatch] Target Resource IDs (${stringIds.length}):`, stringIds);
 
+    const idSet = new Set(stringIds);
+
+    const removedList = [];
+    this.data.resources.forEach(r => {
+      const rId = r.id || (r._id ? r._id.toString() : null);
+      if (rId && (idSet.has(rId) || (r._id && idSet.has(r._id.toString())))) {
+        removedList.push(r);
+      }
+    });
+
+    if (mongoose.connection.readyState === 1) {
+      const orConditions = [{ id: { $in: stringIds } }];
+
+      const objectIds = [];
+      stringIds.forEach(id => {
+        if (/^[0-9a-fA-F]{24}$/.test(id)) {
+          objectIds.push(new mongoose.Types.ObjectId(id));
+        }
+      });
+      removedList.forEach(r => {
+        if (r._id && /^[0-9a-fA-F]{24}$/.test(r._id.toString())) {
+          objectIds.push(new mongoose.Types.ObjectId(r._id.toString()));
+        }
+      });
+
+      if (objectIds.length > 0) {
+        orConditions.push({ _id: { $in: objectIds } });
+      }
+
+      console.log(`[MongoDB Batch Resource Delete] Querying deleteMany with $or:`, orConditions);
+      const mongoResult = await Resource.deleteMany({ $or: orConditions });
+      console.log(`[MongoDB Batch Resource Delete] Result: deletedCount=${mongoResult.deletedCount}`);
+
+      const repOrConditions = [{ resourceId: { $in: stringIds } }];
+      if (objectIds.length > 0) {
+        repOrConditions.push({ resourceId: { $in: objectIds } });
+      }
+      await Report.deleteMany({ $or: repOrConditions });
+    }
+
+    // Remove from in-memory array
     this.data.resources = this.data.resources.filter(r => {
       const rId = r.id || (r._id ? r._id.toString() : null);
-      if (idSet.has(rId)) {
-        removedList.push(r);
+      if (rId && (idSet.has(rId) || (r._id && idSet.has(r._id.toString())))) {
         return false;
       }
       return true;
     });
 
-    this.data.reports = this.data.reports.filter(rep => !idSet.has(rep.resourceId));
+    this.data.reports = this.data.reports.filter(rep => !idSet.has(String(rep.resourceId)));
+    this.save();
 
-    if (removedList.length > 0) {
-      this.save();
-
-      if (mongoose.connection.readyState === 1) {
-        Resource.deleteMany({ $or: [{ id: { $in: ids } }, { _id: { $in: ids } }] }).catch(err => console.error('MongoDB Resource batch delete error:', err.message));
-        Report.deleteMany({ resourceId: { $in: ids } }).catch(err => console.error('MongoDB Report batch delete error:', err.message));
+    removedList.forEach(r => {
+      if (r.fileName) {
+        this.cleanupFileOnDisk(r.fileName);
       }
-
-      removedList.forEach(r => {
-        if (r.fileName) {
-          this.cleanupFileOnDisk(r.fileName);
-        }
-      });
-    }
+    });
 
     return removedList;
   }

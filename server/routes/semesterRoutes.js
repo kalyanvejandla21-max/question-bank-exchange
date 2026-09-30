@@ -29,13 +29,13 @@ router.get('/', (req, res) => {
 });
 
 // POST /api/semesters (Admin)
-router.post('/', requireAdminAuth, (req, res) => {
+router.post('/', requireAdminAuth, async (req, res) => {
   try {
     const { name, title, description } = req.body;
     if (!name) {
       return res.status(400).json({ success: false, message: 'Semester name is required' });
     }
-    const newSem = store.addSemester({ name, title, description });
+    const newSem = await store.addSemester({ name, title, description });
     res.status(201).json({ success: true, data: newSem });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

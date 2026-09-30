@@ -109,27 +109,46 @@ router.post('/upload', (req, res) => {
       const fileSizeMb = (req.file.size / (1024 * 1024)).toFixed(1);
       const fileSize = req.file.size > 1024 * 1024 ? `${fileSizeMb} MB` : `${Math.round(req.file.size / 1024)} KB`;
 
-      let fileUrl = `/uploads/${req.file.filename}`;
-      let cloudinaryPublicId = null;
-
-      if (isCloudinaryConfigured()) {
-        try {
-          const cldRes = await uploadToCloudinary(req.file.path, req.file.originalname);
-          fileUrl = cldRes.secure_url;
-          cloudinaryPublicId = cldRes.public_id;
-        } catch (cldErr) {
-          if (fs.existsSync(req.file.path)) {
-            try { fs.unlinkSync(req.file.path); } catch (e) {}
-          }
-          const errMsg = cldErr?.message || 'Cloudinary upload failed.';
-          return res.status(500).json({
-            success: false,
-            message: `Cloudinary Storage Error: ${errMsg}`
-          });
+      if (!isCloudinaryConfigured()) {
+        if (fs.existsSync(req.file.path)) {
+          try { fs.unlinkSync(req.file.path); } catch (e) {}
         }
+        return res.status(500).json({
+          success: false,
+          message: 'Cloudinary storage is not configured. Upload requires CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET.'
+        });
       }
 
-      const newResource = store.addResource({
+      let fileUrl = null;
+      let cloudinaryPublicId = null;
+
+      try {
+        const cldRes = await uploadToCloudinary(req.file.path, req.file.originalname);
+        fileUrl = cldRes?.secure_url;
+        cloudinaryPublicId = cldRes?.public_id;
+      } catch (cldErr) {
+        if (fs.existsSync(req.file.path)) {
+          try { fs.unlinkSync(req.file.path); } catch (e) {}
+        }
+        const errMsg = cldErr?.message || 'Cloudinary upload failed.';
+        return res.status(500).json({
+          success: false,
+          message: `Cloudinary Storage Error: ${errMsg}`
+        });
+      }
+
+      // Defensive validation: Ensure URL is a valid Cloudinary HTTPS URL and never a local /uploads/ path
+      if (!fileUrl || fileUrl.startsWith('/uploads/') || fileUrl.includes('localhost') || !fileUrl.startsWith('https://')) {
+        if (fs.existsSync(req.file.path)) {
+          try { fs.unlinkSync(req.file.path); } catch (e) {}
+        }
+        return res.status(500).json({
+          success: false,
+          message: 'Upload rejected: Could not generate a valid Cloudinary HTTPS URL.'
+        });
+      }
+
+      const newResource = await store.addResource({
         name: name.trim(),
         semester,
         subjectId,
@@ -243,35 +262,71 @@ router.post('/bulk-delete', requireAdminAuth, async (req, res) => {
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ success: false, message: 'No resource IDs provided for deletion' });
     }
-    const removedList = store.deleteResourcesBatch(ids);
+
+    console.log(`[Admin Bulk Delete] Received ${ids.length} resource IDs for deletion:`, ids);
+    const removedList = await store.deleteResourcesBatch(ids);
+    console.log(`[Admin Bulk Delete] Database deletion complete: ${removedList.length} of ${ids.length} removed.`);
+
+    let cloudinarySuccessCount = 0;
     for (const item of removedList) {
       if (item && item.cloudinaryPublicId) {
-        await deleteFromCloudinary(item.cloudinaryPublicId);
+        try {
+          await deleteFromCloudinary(item.cloudinaryPublicId);
+          cloudinarySuccessCount++;
+        } catch (cldErr) {
+          console.error(`[Admin Bulk Delete] Cloudinary deletion error for ${item.id}:`, cldErr.message);
+        }
       }
     }
+    console.log(`[Admin Bulk Delete] Cloudinary cleanup complete: ${cloudinarySuccessCount} files cleaned up.`);
+
     res.json({
       success: true,
       count: removedList.length,
+      requestedCount: ids.length,
       message: `${removedList.length} resource(s) deleted successfully`
     });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    console.error('[Admin Bulk Delete Error]:', err);
+    res.status(500).json({ success: false, message: err.message || 'Failed to bulk delete resources' });
   }
 });
 
 // DELETE /api/resources/:id (Admin single delete)
 router.delete('/:id', requireAdminAuth, async (req, res) => {
   try {
-    const deleted = store.deleteResource(req.params.id);
+    const resourceId = req.params.id;
+    console.log(`[Admin Single Delete] Received resource ID: ${resourceId}`);
+
+    const deleted = await store.deleteResource(resourceId);
     if (!deleted) {
+      console.warn(`[Admin Single Delete] Resource ${resourceId} not found in database`);
       return res.status(404).json({ success: false, message: 'Resource not found' });
     }
+
+    console.log(`[Admin Single Delete] Resource ${resourceId} ("${deleted.name || deleted.title || ''}") deleted from database.`);
+
+    let cloudinaryStatus = 'N/A';
     if (deleted.cloudinaryPublicId) {
-      await deleteFromCloudinary(deleted.cloudinaryPublicId);
+      try {
+        await deleteFromCloudinary(deleted.cloudinaryPublicId);
+        cloudinaryStatus = 'success';
+        console.log(`[Admin Single Delete] Cloudinary file ${deleted.cloudinaryPublicId} cleaned up.`);
+      } catch (cldErr) {
+        cloudinaryStatus = `failed: ${cldErr.message}`;
+        console.error(`[Admin Single Delete] Cloudinary deletion error:`, cldErr.message);
+      }
     }
-    res.json({ success: true, message: 'Resource deleted successfully' });
+
+    res.json({
+      success: true,
+      message: 'Resource deleted successfully',
+      data: deleted,
+      cloudinaryStatus
+    });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    console.error('[Admin Single Delete Error]:', err);
+    res.status(500).json({ success: false, message: err.message || 'Failed to delete resource' });
   }
 });
 

@@ -109,17 +109,17 @@ export default function AdminDashboardPage() {
   const loadAdminData = async () => {
     setLoading(true);
     try {
-      const statsRes = await getAdminStats();
-      if (statsRes.success) setStats(statsRes.data);
+      const [statsRes, resRes, subjRes, repRes] = await Promise.allSettled([
+        getAdminStats(),
+        getResources(),
+        getSubjects(),
+        getAdminReports()
+      ]);
 
-      const resRes = await getResources();
-      if (resRes.success) setResources(resRes.data);
-
-      const subjRes = await getSubjects();
-      if (subjRes.success) setSubjects(subjRes.data);
-
-      const repRes = await getAdminReports();
-      if (repRes.success) setReports(repRes.data);
+      if (statsRes.status === 'fulfilled' && statsRes.value?.success) setStats(statsRes.value.data);
+      if (resRes.status === 'fulfilled' && resRes.value?.success) setResources(resRes.value.data);
+      if (subjRes.status === 'fulfilled' && subjRes.value?.success) setSubjects(subjRes.value.data);
+      if (repRes.status === 'fulfilled' && repRes.value?.success) setReports(repRes.value.data);
     } catch (err) {
       console.error('Error loading admin data:', err);
     } finally {
@@ -234,32 +234,33 @@ export default function AdminDashboardPage() {
   };
 
   const executePdfDelete = async () => {
-    const { type, targetId, count } = confirmPdfDeleteModal;
+    const { type, targetId, targetName, count } = confirmPdfDeleteModal;
     setConfirmPdfDeleteModal(prev => ({ ...prev, isOpen: false }));
 
     try {
       if (type === 'single' && targetId) {
         const res = await deleteResource(targetId);
-        if (res.success) {
+        if (res && res.success) {
           showToast('✅ Resource deleted successfully.', false);
           setSelectedIds(prev => prev.filter(id => id !== targetId));
-          loadAdminData();
+          await loadAdminData();
         } else {
-          showToast('❌ Failed to delete resource. Please try again.', true);
+          showToast(`❌ Failed to delete resource: ${res?.message || 'Server error'}`, true);
         }
       } else if (type === 'bulk' && selectedIds.length > 0) {
         const res = await deleteResourcesBulk(selectedIds);
-        if (res.success) {
+        if (res && res.success) {
           showToast(`✅ ${res.count || count} resource(s) deleted successfully.`, false);
           setSelectedIds([]);
-          loadAdminData();
+          await loadAdminData();
         } else {
-          showToast('❌ Failed to delete resource. Please try again.', true);
+          showToast(`❌ Failed to delete resources: ${res?.message || 'Server error'}`, true);
         }
       }
     } catch (err) {
       console.error('Delete error:', err);
-      showToast('❌ Failed to delete resource. Please try again.', true);
+      const msg = err.response?.data?.message || err.message || 'Failed to delete resource. Please try again.';
+      showToast(`❌ ${msg}`, true);
     }
   };
 
@@ -295,26 +296,27 @@ export default function AdminDashboardPage() {
     try {
       if (type === 'single' && targetSubject) {
         const res = await deleteSubject(targetSubject.id);
-        if (res.success) {
+        if (res && res.success) {
           showToast(`✅ Subject "${targetSubject.name}" deleted successfully along with associated resources.`, false);
           setSelectedSubjectIds(prev => prev.filter(id => id !== targetSubject.id));
-          loadAdminData();
+          await loadAdminData();
         } else {
-          showToast('❌ Failed to delete subject. Please try again.', true);
+          showToast(`❌ Failed to delete subject: ${res?.message || 'Server error'}`, true);
         }
       } else if (type === 'bulk' && selectedSubjectIds.length > 0) {
         const res = await deleteSubjectsBulk(selectedSubjectIds);
-        if (res.success) {
+        if (res && res.success) {
           showToast(`✅ ${res.count} subject(s) and ${res.deletedResourcesCount} associated PDF(s) deleted successfully.`, false);
           setSelectedSubjectIds([]);
-          loadAdminData();
+          await loadAdminData();
         } else {
-          showToast('❌ Failed to delete subjects. Please try again.', true);
+          showToast(`❌ Failed to delete subjects: ${res?.message || 'Server error'}`, true);
         }
       }
     } catch (err) {
       console.error('Subject Delete error:', err);
-      showToast('❌ Failed to delete subject. Please try again.', true);
+      const msg = err.response?.data?.message || err.message || 'Failed to delete subject. Please try again.';
+      showToast(`❌ ${msg}`, true);
     }
   };
 

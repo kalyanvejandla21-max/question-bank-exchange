@@ -9,8 +9,15 @@ import ResourceCard from '../components/ResourceCard';
 import SubjectCard from '../components/SubjectCard';
 import PdfViewerModal from '../components/PdfViewerModal';
 
+const DEFAULT_SEMESTERS = [
+  { id: 'sem-3-1', name: '3-1', title: 'Semester 3-1', description: 'Question Banks, Papers & Study Material for 3-1', subjectCount: 0, resourceCount: 0 },
+  { id: 'sem-3-2', name: '3-2', title: 'Semester 3-2', description: 'Question Banks, Papers & Study Material for 3-2', subjectCount: 0, resourceCount: 0 },
+  { id: 'sem-4-1', name: '4-1', title: 'Semester 4-1', description: 'Question Banks, Papers & Study Material for 4-1', subjectCount: 0, resourceCount: 0 },
+  { id: 'sem-4-2', name: '4-2', title: 'Semester 4-2', description: 'Question Banks, Papers & Study Material for 4-2', subjectCount: 0, resourceCount: 0 }
+];
+
 export default function HomePage() {
-  const [semesters, setSemesters] = useState([]);
+  const [semesters, setSemesters] = useState(DEFAULT_SEMESTERS);
   const [recentResources, setRecentResources] = useState([]);
   const [popularSubjects, setPopularSubjects] = useState([]);
   const [stats, setStats] = useState({
@@ -23,79 +30,75 @@ export default function HomePage() {
   const [viewingResource, setViewingResource] = useState(null);
 
   useEffect(() => {
+    let isMounted = true;
+
     async function loadHomeData() {
       try {
-        setLoading(true);
+        // Fetch independent endpoints in parallel using Promise.allSettled
+        const [semResult, resResult, subjResult] = await Promise.allSettled([
+          getSemesters(),
+          getResources(),
+          getSubjects()
+        ]);
 
-        // Fetch Semesters
-        const semRes = await getSemesters();
-        const semData = Array.isArray(semRes?.data)
-          ? semRes.data
-          : (Array.isArray(semRes?.data?.data) ? semRes.data.data : []);
+        if (!isMounted) return;
 
-        // Default 3-1, 3-2, 4-1, 4-2 fallback if empty array returned
-        let finalSemesters = semData;
-        if (!finalSemesters || finalSemesters.length === 0) {
-          finalSemesters = [
-            { name: '3-1', title: 'Semester 3-1', description: 'Question Banks, Papers & Study Material for 3-1', subjectCount: 0, resourceCount: 0 },
-            { name: '3-2', title: 'Semester 3-2', description: 'Question Banks, Papers & Study Material for 3-2', subjectCount: 0, resourceCount: 0 },
-            { name: '4-1', title: 'Semester 4-1', description: 'Question Banks, Papers & Study Material for 4-1', subjectCount: 0, resourceCount: 0 },
-            { name: '4-2', title: 'Semester 4-2', description: 'Question Banks, Papers & Study Material for 4-2', subjectCount: 0, resourceCount: 0 }
-          ];
-        }
-        setSemesters(finalSemesters);
+        let currentSemesters = DEFAULT_SEMESTERS;
+        let currentResources = [];
+        let currentSubjects = [];
 
-        // Fetch Resources
-        const resRes = await getResources();
-        const resData = Array.isArray(resRes?.data)
-          ? resRes.data
-          : (Array.isArray(resRes?.data?.data) ? resRes.data.data : []);
-        setRecentResources(resData.slice(0, 6));
-
-        // Fetch Subjects
-        const subjRes = await getSubjects();
-        const subjData = Array.isArray(subjRes?.data)
-          ? subjRes.data
-          : (Array.isArray(subjRes?.data?.data) ? subjRes.data.data : []);
-        
-        // Sort popular subjects by resource count
-        const sortedSubjs = [...subjData].sort((a, b) => (b.resourceCount || 0) - (a.resourceCount || 0));
-        setPopularSubjects(sortedSubjs.slice(0, 6));
-
-        // Calculate Real Stats
-        const calculatedDownloads = resData.reduce((acc, r) => acc + (r.downloadsCount || 0), 0);
-        let finalStats = {
-          totalSemesters: finalSemesters.length,
-          totalSubjects: subjData.length,
-          totalPdfs: resData.length,
-          totalDownloads: calculatedDownloads
-        };
-
-        // Attempt fetching admin stats if available
-        try {
-          const statRes = await getAdminStats();
-          const statData = statRes?.data?.data || statRes?.data || statRes;
-          if (statData && typeof statData === 'object') {
-            finalStats = {
-              totalSemesters: statData.totalSemesters || finalStats.totalSemesters,
-              totalSubjects: statData.totalSubjects || finalStats.totalSubjects,
-              totalPdfs: statData.totalPdfs || finalStats.totalPdfs,
-              totalDownloads: statData.totalDownloads || finalStats.totalDownloads
-            };
+        if (semResult.status === 'fulfilled' && semResult.value) {
+          const semRes = semResult.value;
+          const semData = Array.isArray(semRes?.data) 
+            ? semRes.data 
+            : (Array.isArray(semRes?.data?.data) ? semRes.data.data : []);
+          if (semData && semData.length > 0) {
+            currentSemesters = semData;
+            setSemesters(semData);
           }
-        } catch (e) {
-          // Unauthenticated or non-admin call expected; fallback to calculated real numbers
         }
 
-        setStats(finalStats);
+        if (resResult.status === 'fulfilled' && resResult.value) {
+          const resRes = resResult.value;
+          const resData = Array.isArray(resRes?.data) 
+            ? resRes.data 
+            : (Array.isArray(resRes?.data?.data) ? resRes.data.data : []);
+          currentResources = resData;
+          setRecentResources(resData.slice(0, 6));
+        }
+
+        if (subjResult.status === 'fulfilled' && subjResult.value) {
+          const subjRes = subjResult.value;
+          const subjData = Array.isArray(subjRes?.data) 
+            ? subjRes.data 
+            : (Array.isArray(subjRes?.data?.data) ? subjRes.data.data : []);
+          currentSubjects = subjData;
+          const sortedSubjs = [...subjData].sort((a, b) => (b.resourceCount || 0) - (a.resourceCount || 0));
+          setPopularSubjects(sortedSubjs.slice(0, 6));
+        }
+
+        const calculatedDownloads = currentResources.reduce((acc, r) => acc + (r.downloadsCount || 0), 0);
+        setStats({
+          totalSemesters: currentSemesters.length || 4,
+          totalSubjects: currentSubjects.length || 0,
+          totalPdfs: currentResources.length || 0,
+          totalDownloads: calculatedDownloads || 0
+        });
+
       } catch (err) {
         console.error('Failed to load homepage data:', err);
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
 
     loadHomeData();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const howItWorksSteps = [
