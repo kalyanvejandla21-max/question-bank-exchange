@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
+import OpeningAnimation from './components/OpeningAnimation';
 import HomePage from './pages/HomePage';
 import SemestersPage from './pages/SemestersPage';
 import SemesterDetailPage from './pages/SemesterDetailPage';
@@ -17,6 +18,7 @@ export default function App() {
   return (
     <AuthProvider>
       <Router>
+        <OpeningAnimation />
         <div className="min-h-screen bg-[#07090e] text-slate-100 flex flex-col font-sans selection:bg-sky-500 selection:text-white">
           <Navbar />
           <main className="flex-1">

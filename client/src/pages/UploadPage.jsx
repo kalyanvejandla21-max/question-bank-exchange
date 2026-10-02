@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { getSemesters, getSubjects, uploadResource, addSubject } from '../services/api';
 import { Upload, FileText, CheckCircle2, AlertCircle, ArrowRight, X, FolderPlus, Copy, ShieldAlert } from 'lucide-react';
+import FileUpload from '../components/FileUpload';
 
 const SEMESTERS = ['3-1', '3-2', '4-1', '4-2'];
 
@@ -55,21 +56,10 @@ export default function UploadPage() {
     loadSemesterSubjects();
   }, [semester]);
 
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
+  const handleFileSelect = (file) => {
     setErrorMessage('');
     setDuplicateData(null);
     if (file) {
-      if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-        setErrorMessage('Only PDF files are allowed.');
-        setPdfFile(null);
-        return;
-      }
-      if (file.size > 25 * 1024 * 1024) {
-        setErrorMessage('File size exceeds the 25 MB limit.');
-        setPdfFile(null);
-        return;
-      }
       setPdfFile(file);
       if (!resourceName) {
         const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/_/g, " ");
@@ -346,86 +336,22 @@ export default function UploadPage() {
               PDF Document * <span className="text-slate-500 lowercase">(Only PDF files allowed, max 25 MB)</span>
             </label>
 
-            <div className="relative border-2 border-dashed border-slate-700 hover:border-sky-500 rounded-2xl p-6 text-center transition-colors bg-slate-950/60 cursor-pointer">
-              <input
-                type="file"
-                accept=".pdf,application/pdf"
-                onChange={handleFileChange}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-              />
-
-              {pdfFile ? (
-                <div className="flex items-center justify-between bg-slate-900 border border-slate-700 rounded-xl p-3 max-w-md mx-auto relative z-20">
-                  <div className="flex items-center gap-3 truncate">
-                    <div className="w-10 h-10 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center shrink-0">
-                      <FileText className="w-5 h-5" />
-                    </div>
-                    <div className="text-left truncate">
-                      <span className="text-xs font-bold text-white block truncate">{pdfFile.name}</span>
-                      <span className="text-[11px] text-slate-400">{(pdfFile.size / (1024 * 1024)).toFixed(2)} MB</span>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setPdfFile(null);
-                    }}
-                    className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-2 py-4">
-                  <div className="w-12 h-12 rounded-xl bg-sky-500/10 text-sky-400 flex items-center justify-center mx-auto border border-sky-500/20">
-                    <Upload className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <span className="text-sm font-semibold text-sky-400">Click to choose PDF</span>
-                    <span className="text-sm text-slate-400"> or drag and drop</span>
-                  </div>
-                  <p className="text-xs text-slate-500">PDF files up to 25 MB</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Upload Status & Progress Bar */}
-          {(uploadState === 'Uploading' || uploadState === 'Processing') && (
-            <div className="space-y-2 pt-2 bg-slate-950 p-4 rounded-2xl border border-slate-800">
-              <div className="flex justify-between text-xs font-semibold">
-                <span className="text-sky-400 flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-sky-400 animate-ping" />
-                  {uploadState === 'Processing' ? 'Processing file & verifying duplicate hash...' : 'Uploading PDF file...'}
-                </span>
-                <span className="text-slate-400 font-mono">{uploadProgress}%</span>
-              </div>
-              <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-sky-500 to-amber-400 transition-all duration-300 rounded-full"
-                  style={{ width: `${uploadProgress}%` }}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Submit Button */}
-          <div className="pt-4">
-            <button
-              type="submit"
-              disabled={uploadState === 'Uploading' || uploadState === 'Processing'}
-              className="w-full py-4 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-bold text-sm transition-all shadow-lg shadow-sky-600/20 flex items-center justify-center gap-2"
-            >
-              {uploadState === 'Uploading' || uploadState === 'Processing' ? (
-                <>{uploadState === 'Processing' ? 'Processing...' : 'Uploading...'}</>
-              ) : (
-                <>
-                  <Upload className="w-4 h-4" />
-                  Upload PDF Resource
-                </>
-              )}
-            </button>
+            <FileUpload
+              file={pdfFile}
+              onFileSelect={handleFileSelect}
+              onRemove={() => {
+                setPdfFile(null);
+                setErrorMessage('');
+                setDuplicateData(null);
+              }}
+              uploadState={uploadState}
+              uploadProgress={uploadProgress}
+              errorMessage={errorMessage}
+              onError={(err) => {
+                setErrorMessage(err);
+                setPdfFile(null);
+              }}
+            />
           </div>
 
         </form>
