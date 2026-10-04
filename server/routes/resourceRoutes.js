@@ -230,6 +230,7 @@ router.post('/upload', (req, res) => {
       if (req.file && fs.existsSync(req.file.path)) {
         try { fs.unlinkSync(req.file.path); } catch (e) {}
       }
+
       if (error.isDuplicate) {
         return res.status(400).json({
           success: false,
@@ -237,8 +238,13 @@ router.post('/upload', (req, res) => {
           message: error.message,
           existingResource: error.existingResource
         });
+      }
+
       console.error('[UPLOAD ERROR] Unexpected upload handler exception:', error);
-      res.status(500).json({ success: false, message: 'PDF storage is temporarily unavailable. Please try again later.' });
+      res.status(500).json({
+        success: false,
+        message: 'PDF storage is temporarily unavailable. Please try again later.'
+      });
     }
   });
 });
