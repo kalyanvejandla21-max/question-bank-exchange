@@ -11,8 +11,6 @@ import resourceRoutes from './routes/resourceRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import searchRoutes from './routes/searchRoutes.js';
 import { store } from './data/store.js';
-import { isCloudinaryConfigured } from './config/cloudinary.js';
-import { migrateMongoFilesToCloudinary } from './data/mongoMigration.js';
 
 dotenv.config();
 
@@ -85,13 +83,7 @@ if (process.env.MONGODB_URI) {
     })
     .catch((err) => {
       console.warn('⚠️ MongoDB Connection warning (Using file database fallback):', err.message);
-      if (isCloudinaryConfigured()) {
-        store.migrateLocalFilesToCloudinary().catch(e => console.error('Local file migration error:', e.message));
-      }
     });
 } else {
   console.log('ℹ️ Running with Zero-Config Local File Database (store.json)');
-  if (isCloudinaryConfigured()) {
-    store.migrateLocalFilesToCloudinary().catch(e => console.error('Local file migration error:', e.message));
-  }
 }

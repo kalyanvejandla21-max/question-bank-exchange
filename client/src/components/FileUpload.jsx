@@ -285,7 +285,7 @@ export default function FileUpload({
 
     const maxSizeBytes = 25 * 1024 * 1024; // 25 MB
     if (selectedFile.size > maxSizeBytes) {
-      return { valid: false, error: 'File size exceeds 25 MB.' };
+      return { valid: false, error: 'File size must be 25 MB or less.' };
     }
 
     return { valid: true, error: null };

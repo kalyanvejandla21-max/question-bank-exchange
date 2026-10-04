@@ -135,78 +135,46 @@ router.post('/upload', (req, res) => {
         });
       }
 
-      const TEN_MB_BYTES = 10 * 1024 * 1024; // 10,485,760 bytes (10 MiB)
       const fileSizeMb = (req.file.size / (1024 * 1024)).toFixed(2);
       const fileSize = req.file.size > 1024 * 1024 ? `${fileSizeMb} MB` : `${Math.round(req.file.size / 1024)} KB`;
 
       let fileUrl = null;
       let cloudinaryPublicId = null;
       let r2Key = null;
-      let storageProvider = 'cloudinary';
+      let storageProvider = 'r2';
 
       const storageStart = Date.now();
 
-      if (req.file.size <= TEN_MB_BYTES) {
-        // Files <= 10 MiB -> Cloudinary
-        console.log(`[UPLOAD] Cloudinary upload started for "${req.file.originalname}" (${fileSizeMb} MB)`);
-        if (!isCloudinaryConfigured()) {
-          if (fs.existsSync(req.file.path)) {
-            try { fs.unlinkSync(req.file.path); } catch (e) {}
-          }
-          return res.status(500).json({
-            success: false,
-            message: 'Cloudinary storage is not configured. Upload requires CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET.'
-          });
+      console.log(`[UPLOAD] Cloudflare R2 upload started for "${req.file.originalname}" (${fileSizeMb} MB)`);
+      if (!isR2Configured()) {
+        if (fs.existsSync(req.file.path)) {
+          try { fs.unlinkSync(req.file.path); } catch (e) {}
         }
+        return res.status(500).json({
+          success: false,
+          message: 'PDF storage is temporarily unavailable. Please try again later.'
+        });
+      }
 
-        try {
-          const cldRes = await uploadToCloudinary(req.file.path, req.file.originalname);
-          fileUrl = cldRes?.secure_url;
-          cloudinaryPublicId = cldRes?.public_id;
-          storageProvider = 'cloudinary';
-        } catch (cldErr) {
-          if (fs.existsSync(req.file.path)) {
-            try { fs.unlinkSync(req.file.path); } catch (e) {}
-          }
-          const errMsg = cldErr?.message || 'Cloudinary upload failed.';
-          return res.status(500).json({
-            success: false,
-            message: `Cloudinary Storage Error: ${errMsg}`
-          });
+      try {
+        const r2Res = await uploadToR2(req.file.path, req.file.originalname, { semester, subject: subjectId });
+        fileUrl = r2Res?.secure_url;
+        r2Key = r2Res?.key;
+        cloudinaryPublicId = null;
+        storageProvider = 'r2';
+      } catch (r2Err) {
+        if (fs.existsSync(req.file.path)) {
+          try { fs.unlinkSync(req.file.path); } catch (e) {}
         }
-      } else {
-        // Files > 10 MiB and <= 25 MB -> Cloudflare R2
-        console.log(`[UPLOAD] Cloudflare R2 upload started for "${req.file.originalname}" (${fileSizeMb} MB)`);
-        if (!isR2Configured()) {
-          if (fs.existsSync(req.file.path)) {
-            try { fs.unlinkSync(req.file.path); } catch (e) {}
-          }
-          return res.status(500).json({
-            success: false,
-            message: 'Cloudflare R2 storage is required for files above 10 MB (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, R2_PUBLIC_BASE_URL are missing).'
-          });
-        }
-
-        try {
-          const r2Res = await uploadToR2(req.file.path, req.file.originalname);
-          fileUrl = r2Res?.secure_url;
-          r2Key = r2Res?.key;
-          cloudinaryPublicId = null;
-          storageProvider = 'r2';
-        } catch (r2Err) {
-          if (fs.existsSync(req.file.path)) {
-            try { fs.unlinkSync(req.file.path); } catch (e) {}
-          }
-          const errMsg = r2Err?.message || 'Cloudflare R2 upload failed.';
-          return res.status(500).json({
-            success: false,
-            message: `Cloudflare R2 Storage Error: ${errMsg}`
-          });
-        }
+        console.error('[UPLOAD ERROR] Cloudflare R2 upload error details:', r2Err);
+        return res.status(500).json({
+          success: false,
+          message: 'PDF storage is temporarily unavailable. Please try again later.'
+        });
       }
 
       const storageTime = Date.now() - storageStart;
-      console.log(`[UPLOAD] ${storageProvider === 'r2' ? 'Cloudflare R2' : 'Cloudinary'} upload completed in ${storageTime}ms`);
+      console.log(`[UPLOAD] Cloudflare R2 upload completed in ${storageTime}ms`);
 
       // Defensive validation: Ensure URL is a valid external HTTPS URL and never a local /uploads/ path
       if (!fileUrl || !fileUrl.startsWith('https://')) {
@@ -269,8 +237,8 @@ router.post('/upload', (req, res) => {
           message: error.message,
           existingResource: error.existingResource
         });
-      }
-      res.status(500).json({ success: false, message: error.message });
+      console.error('[UPLOAD ERROR] Unexpected upload handler exception:', error);
+      res.status(500).json({ success: false, message: 'PDF storage is temporarily unavailable. Please try again later.' });
     }
   });
 });

@@ -44,18 +44,27 @@ const getR2Client = () => {
  * Upload local file to Cloudflare R2 storage bucket.
  * @param {string} filePath - Absolute path to local temporary file
  * @param {string} [originalName] - Original filename
+ * @param {object} [options] - Additional metadata for key naming (semester, subject)
  * @returns {Promise<{ secure_url: string, public_id: string, key: string }>}
  */
-export const uploadToR2 = async (filePath, originalName = '') => {
+export const uploadToR2 = async (filePath, originalName = '', options = {}) => {
   if (!isR2Configured()) {
-    throw new Error(
-      'Cloudflare R2 storage is required for files above 10 MB (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, R2_PUBLIC_BASE_URL are missing).'
-    );
+    throw new Error('PDF storage is temporarily unavailable. Please try again later.');
   }
 
-  const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-  const sanitizedOriginal = (originalName || path.basename(filePath)).replace(/[^a-zA-Z0-9.-]/g, '_');
-  const key = `qb_exchanger/${uniqueSuffix}-${sanitizedOriginal}`;
+  const timestamp = Date.now();
+  const randomSuffix = Math.floor(Math.random() * 100000);
+  const baseName = originalName || path.basename(filePath);
+  const sanitizedOriginal = baseName.replace(/[^a-zA-Z0-9.-]/g, '_').replace(/_+/g, '_');
+
+  let key = '';
+  if (options && (options.semester || options.subject)) {
+    const sem = (options.semester || 'general').replace(/[^a-zA-Z0-9]/g, '');
+    const subj = (options.subject || 'general').replace(/[^a-zA-Z0-9.-]/g, '_');
+    key = `resources/${sem}/${subj}/${timestamp}_${randomSuffix}-${sanitizedOriginal}`;
+  } else {
+    key = `resources/${timestamp}_${randomSuffix}-${sanitizedOriginal}`;
+  }
 
   let baseUrl = process.env.R2_PUBLIC_BASE_URL.trim().replace(/\/+$/, '');
   if (!baseUrl.startsWith('https://')) {
@@ -121,3 +130,4 @@ export const deleteFromR2 = async (key) => {
     console.error(`Failed to delete Cloudflare R2 object (${key}):`, err.message || err);
   }
 };
+

@@ -2,8 +2,29 @@ import express from 'express';
 import { store } from '../data/store.js';
 import { requireAdminAuth } from '../middleware/authMiddleware.js';
 import { deleteFromCloudinary } from '../config/cloudinary.js';
+import { deleteFromR2 } from '../config/r2.js';
 
 const router = express.Router();
+
+const cleanupResourceStorage = async (resItem) => {
+  if (!resItem) return;
+  if (resItem.storageProvider === 'r2' || resItem.r2Key) {
+    const key = resItem.r2Key || resItem.cloudinaryPublicId;
+    if (key) {
+      try {
+        await deleteFromR2(key);
+      } catch (err) {
+        console.error(`[Subject Delete] R2 cleanup error for ${resItem.id}:`, err.message);
+      }
+    }
+  } else if (resItem.cloudinaryPublicId) {
+    try {
+      await deleteFromCloudinary(resItem.cloudinaryPublicId);
+    } catch (err) {
+      console.error(`[Subject Delete] Cloudinary cleanup error for ${resItem.id}:`, err.message);
+    }
+  }
+};
 
 // GET /api/subjects?semester=3-1
 router.get('/', (req, res) => {
@@ -61,12 +82,10 @@ router.post('/bulk-delete', requireAdminAuth, async (req, res) => {
     if (!Array.isArray(ids) || ids.length === 0) {
       return res.status(400).json({ success: false, message: 'No subject IDs provided for deletion' });
     }
-    const result = store.deleteSubjectsBatch(ids);
+    const result = await store.deleteSubjectsBatch(ids);
     if (Array.isArray(result.deletedResources)) {
       for (const resItem of result.deletedResources) {
-        if (resItem && resItem.cloudinaryPublicId) {
-          await deleteFromCloudinary(resItem.cloudinaryPublicId);
-        }
+        await cleanupResourceStorage(resItem);
       }
     }
     res.json({
@@ -83,15 +102,13 @@ router.post('/bulk-delete', requireAdminAuth, async (req, res) => {
 // DELETE /api/subjects/:id (Admin single delete subject)
 router.delete('/:id', requireAdminAuth, async (req, res) => {
   try {
-    const result = store.deleteSubject(req.params.id);
+    const result = await store.deleteSubject(req.params.id);
     if (!result) {
       return res.status(404).json({ success: false, message: 'Subject not found' });
     }
     if (Array.isArray(result.deletedResources)) {
       for (const resItem of result.deletedResources) {
-        if (resItem && resItem.cloudinaryPublicId) {
-          await deleteFromCloudinary(resItem.cloudinaryPublicId);
-        }
+        await cleanupResourceStorage(resItem);
       }
     }
     res.json({
