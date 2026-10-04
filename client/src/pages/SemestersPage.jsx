@@ -1,28 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import { getSemesters } from '../services/api';
 import SemesterCard from '../components/SemesterCard';
-import { GraduationCap, BookOpen } from 'lucide-react';
+import { BookOpen, RefreshCw, AlertCircle } from 'lucide-react';
 
 export default function SemestersPage() {
   const [semesters, setSemesters] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const fetchSemesters = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await getSemesters();
+      const semestersData = Array.isArray(res?.data) 
+        ? res.data 
+        : (Array.isArray(res?.data?.data) ? res.data.data : []);
+      if (res?.success || res?.data?.success || semestersData.length > 0) {
+        setSemesters(semestersData);
+      } else {
+        setError('Unable to load semesters. Please try again.');
+      }
+    } catch (err) {
+      console.error('Error fetching semesters:', err);
+      setError('Unable to load semesters. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    async function fetchSemesters() {
-      try {
-        const res = await getSemesters();
-        const semestersData = Array.isArray(res?.data) 
-          ? res.data 
-          : (Array.isArray(res?.data?.data) ? res.data.data : []);
-        if (res?.success || res?.data?.success || semestersData.length > 0) {
-          setSemesters(semestersData);
-        }
-      } catch (err) {
-        console.error('Error fetching semesters:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
     fetchSemesters();
   }, []);
 
@@ -43,18 +50,37 @@ export default function SemestersPage() {
         </div>
       </div>
 
+      {/* Error Banner */}
+      {error && (
+        <div className="bg-rose-500/10 border border-rose-500/20 rounded-2xl p-6 text-center space-y-3">
+          <div className="flex items-center justify-center gap-2 text-rose-400 font-semibold text-sm">
+            <AlertCircle className="w-5 h-5" />
+            <span>{error}</span>
+          </div>
+          <button
+            onClick={fetchSemesters}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs font-bold transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Retry Loading Semesters
+          </button>
+        </div>
+      )}
+
       {/* Semesters Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {loading ? (
-          Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-48 rounded-2xl bg-slate-900 animate-pulse border border-slate-800" />
-          ))
-        ) : (
-          semesters.map((sem) => (
-            <SemesterCard key={sem.id} semester={sem} />
-          ))
-        )}
-      </div>
+      {!error && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {loading ? (
+            Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-48 rounded-2xl bg-slate-900 animate-pulse border border-slate-800" />
+            ))
+          ) : (
+            semesters.map((sem) => (
+              <SemesterCard key={sem.id || sem.name} semester={sem} />
+            ))
+          )}
+        </div>
+      )}
 
     </div>
   );

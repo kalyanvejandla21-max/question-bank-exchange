@@ -68,29 +68,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Database & Migration Initialization
-if (process.env.MONGODB_URI) {
-  try {
-    await mongoose.connect(process.env.MONGODB_URI);
-    console.log('✅ Connected to MongoDB Database');
-    await store.syncWithMongo();
-    if (isCloudinaryConfigured()) {
-      await migrateMongoFilesToCloudinary();
-      await store.syncWithMongo();
-    }
-  } catch (err) {
-    console.warn('⚠️ MongoDB Connection warning (Using file database fallback):', err.message);
-    if (isCloudinaryConfigured()) {
-      await store.migrateLocalFilesToCloudinary();
-    }
-  }
-} else {
-  console.log('ℹ️ Running with Zero-Config Local File Database (store.json)');
-  if (isCloudinaryConfigured()) {
-    await store.migrateLocalFilesToCloudinary();
-  }
-}
-
 const server = app.listen(PORT, () => {
   console.log(`🚀 Question Bank Exchange Server running on port ${PORT}`);
   console.log(`📁 Uploads Directory: ${uploadsPath}`);
@@ -98,3 +75,23 @@ const server = app.listen(PORT, () => {
 
 server.timeout = 600000; // 10 minutes timeout for large file uploads
 server.keepAliveTimeout = 60000;
+
+// Async Non-blocking Database Initialization
+if (process.env.MONGODB_URI) {
+  mongoose.connect(process.env.MONGODB_URI)
+    .then(async () => {
+      console.log('✅ Connected to MongoDB Database');
+      await store.syncWithMongo();
+    })
+    .catch((err) => {
+      console.warn('⚠️ MongoDB Connection warning (Using file database fallback):', err.message);
+      if (isCloudinaryConfigured()) {
+        store.migrateLocalFilesToCloudinary().catch(e => console.error('Local file migration error:', e.message));
+      }
+    });
+} else {
+  console.log('ℹ️ Running with Zero-Config Local File Database (store.json)');
+  if (isCloudinaryConfigured()) {
+    store.migrateLocalFilesToCloudinary().catch(e => console.error('Local file migration error:', e.message));
+  }
+}

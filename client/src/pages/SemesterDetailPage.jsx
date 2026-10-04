@@ -3,30 +3,37 @@ import { useParams, Link } from 'react-router-dom';
 import { getSubjects } from '../services/api';
 import SubjectCard from '../components/SubjectCard';
 import EmptyState from '../components/EmptyState';
-import { ArrowLeft, BookOpen, Search, PlusCircle, Upload } from 'lucide-react';
+import { ArrowLeft, BookOpen, Search, Upload, RefreshCw, AlertCircle } from 'lucide-react';
 
 export default function SemesterDetailPage() {
   const { semesterName } = useParams(); // e.g. "3-1"
   const [subjects, setSubjects] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [filterQuery, setFilterQuery] = useState('');
 
-  useEffect(() => {
-    async function fetchSemesterSubjects() {
-      try {
-        const res = await getSubjects(semesterName);
-        const subjectsData = Array.isArray(res?.data)
-          ? res.data
-          : (Array.isArray(res?.data?.data) ? res.data.data : []);
-        if (res?.success || res?.data?.success || subjectsData.length > 0) {
-          setSubjects(subjectsData);
-        }
-      } catch (err) {
-        console.error('Failed to fetch subjects:', err);
-      } finally {
-        setLoading(false);
+  const fetchSemesterSubjects = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await getSubjects(semesterName);
+      const subjectsData = Array.isArray(res?.data)
+        ? res.data
+        : (Array.isArray(res?.data?.data) ? res.data.data : []);
+      if (res?.success || res?.data?.success || subjectsData.length > 0) {
+        setSubjects(subjectsData);
+      } else {
+        setError('Unable to load resources. Please try again.');
       }
+    } catch (err) {
+      console.error('Failed to fetch subjects:', err);
+      setError('Unable to load resources. Please try again.');
+    } finally {
+      setLoading(false);
     }
+  };
+
+  useEffect(() => {
     fetchSemesterSubjects();
   }, [semesterName]);
 
@@ -84,8 +91,22 @@ export default function SemesterDetailPage() {
         </span>
       </div>
 
-      {/* Subjects Cards Grid */}
-      {loading ? (
+      {/* Error State */}
+      {error ? (
+        <div className="bg-rose-500/10 border border-rose-500/20 rounded-2xl p-6 text-center space-y-3">
+          <div className="flex items-center justify-center gap-2 text-rose-400 font-semibold text-sm">
+            <AlertCircle className="w-5 h-5" />
+            <span>{error}</span>
+          </div>
+          <button
+            onClick={fetchSemesterSubjects}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs font-bold transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Retry Loading Subjects
+          </button>
+        </div>
+      ) : loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="h-28 rounded-2xl bg-slate-900 animate-pulse border border-slate-800" />

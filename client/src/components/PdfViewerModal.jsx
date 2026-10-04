@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import { X, ZoomIn, ZoomOut, RotateCw, Maximize2, Download, FileText, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
-import { recordDownload, getFileUrl } from '../services/api';
+import { downloadResourceFile, getFileUrl } from '../services/api';
 import ReportModal from './ReportModal';
 
-export default function PdfViewerModal({ resource, onClose }) {
+export default function PdfViewerModal({ resource, onClose, onDownloadSuccess }) {
   const [zoom, setZoom] = useState(100);
   const [rotation, setRotation] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   if (!resource) return null;
 
@@ -19,17 +20,16 @@ export default function PdfViewerModal({ resource, onClose }) {
   const handleRotate = () => setRotation(prev => (prev + 90) % 360);
 
   const handleDownload = async () => {
+    if (isDownloading) return;
+    setIsDownloading(true);
     try {
-      await recordDownload(resource.id);
+      await downloadResourceFile(resource, onDownloadSuccess);
     } catch (e) {
-      console.error(e);
+      console.error('Download error:', e);
+      alert('Download failed. Please try again.');
+    } finally {
+      setIsDownloading(false);
     }
-    const link = document.createElement('a');
-    link.href = getFileUrl(resource.fileUrl);
-    link.download = resource.fileName || `${resource.name}.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
   };
 
   const toggleFullscreen = () => {
@@ -136,10 +136,11 @@ export default function PdfViewerModal({ resource, onClose }) {
 
             <button
               onClick={handleDownload}
-              className="px-3.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md"
+              disabled={isDownloading}
+              className="px-3.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md transition-colors"
             >
-              <Download className="w-3.5 h-3.5" />
-              Download
+              <Download className={`w-3.5 h-3.5 ${isDownloading ? 'animate-bounce' : ''}`} />
+              {isDownloading ? 'Downloading...' : 'Download'}
             </button>
 
             <button

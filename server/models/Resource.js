@@ -23,6 +23,8 @@ const resourceSchema = new mongoose.Schema({
   fileSize: { type: String },
   fileHash: { type: String },
   cloudinaryPublicId: { type: String, default: null },
+  r2Key: { type: String, default: null },
+  storageProvider: { type: String, enum: ['cloudinary', 'r2'], default: 'cloudinary' },
   uploadedDate: { type: String, default: () => new Date().toISOString() },
   uploadedBy: { type: String, default: 'Student/User' },
   downloadsCount: { type: Number, default: 0 },

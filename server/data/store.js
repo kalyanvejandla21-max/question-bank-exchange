@@ -487,13 +487,13 @@ class DataStore {
     return null;
   }
 
-  async addResource({ name, semester, subjectId, category, fileName, fileUrl, fileSize, filePath, cloudinaryPublicId }) {
+  async addResource({ name, semester, subjectId, category, fileName, fileUrl, fileSize, filePath, cloudinaryPublicId, r2Key, storageProvider }) {
     if (!ALLOWED_SEMESTERS.includes(semester)) {
       throw new Error(`Invalid semester. Allowed semesters are: ${ALLOWED_SEMESTERS.join(', ')}`);
     }
 
-    if (!fileUrl || fileUrl.startsWith('/uploads/') || fileUrl.includes('localhost')) {
-      throw new Error('Resource fileUrl must be a valid Cloudinary HTTPS URL. Storing local /uploads/ paths is prohibited.');
+    if (!fileUrl || !fileUrl.startsWith('https://')) {
+      throw new Error('Resource fileUrl must be a valid external HTTPS URL. Storing local /uploads/ paths is prohibited.');
     }
 
     const fileHash = filePath ? calculateFileHash(filePath) : null;
@@ -522,6 +522,8 @@ class DataStore {
       fileSize: fileSize || '1.0 MB',
       fileHash,
       cloudinaryPublicId: cloudinaryPublicId || null,
+      r2Key: r2Key || null,
+      storageProvider: storageProvider || (fileUrl.includes('res.cloudinary.com') ? 'cloudinary' : 'r2'),
       uploadedDate: new Date().toISOString(),
       uploadedBy: 'Student/User',
       downloadsCount: 0,

@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { BookOpen, Upload, FileText, ArrowRight, Sparkles, Layers, ShieldCheck, Compass, Eye, Search, CheckCircle2 } from 'lucide-react';
+import { BookOpen, Upload, FileText, ArrowRight, Sparkles, Layers, ShieldCheck, Compass, Eye, Search, CheckCircle2, RefreshCw, AlertCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { getSemesters, getResources, getSubjects, getAdminStats } from '../services/api';
+import { getSemesters, getResources, getSubjects } from '../services/api';
 import FlowField from '../components/FlowField';
 import SemesterCard from '../components/SemesterCard';
 import ResourceCard from '../components/ResourceCard';
@@ -27,79 +27,80 @@ export default function HomePage() {
     totalDownloads: 0
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [viewingResource, setViewingResource] = useState(null);
 
-  useEffect(() => {
-    let isMounted = true;
+  const loadHomeData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [semResult, resResult, subjResult] = await Promise.allSettled([
+        getSemesters(),
+        getResources(),
+        getSubjects()
+      ]);
 
-    async function loadHomeData() {
-      try {
-        // Fetch independent endpoints in parallel using Promise.allSettled
-        const [semResult, resResult, subjResult] = await Promise.allSettled([
-          getSemesters(),
-          getResources(),
-          getSubjects()
-        ]);
+      let currentSemesters = DEFAULT_SEMESTERS;
+      let currentResources = [];
+      let currentSubjects = [];
+      let successCount = 0;
 
-        if (!isMounted) return;
-
-        let currentSemesters = DEFAULT_SEMESTERS;
-        let currentResources = [];
-        let currentSubjects = [];
-
-        if (semResult.status === 'fulfilled' && semResult.value) {
-          const semRes = semResult.value;
-          const semData = Array.isArray(semRes?.data) 
-            ? semRes.data 
-            : (Array.isArray(semRes?.data?.data) ? semRes.data.data : []);
-          if (semData && semData.length > 0) {
-            currentSemesters = semData;
-            setSemesters(semData);
-          }
-        }
-
-        if (resResult.status === 'fulfilled' && resResult.value) {
-          const resRes = resResult.value;
-          const resData = Array.isArray(resRes?.data) 
-            ? resRes.data 
-            : (Array.isArray(resRes?.data?.data) ? resRes.data.data : []);
-          currentResources = resData;
-          setRecentResources(resData.slice(0, 6));
-        }
-
-        if (subjResult.status === 'fulfilled' && subjResult.value) {
-          const subjRes = subjResult.value;
-          const subjData = Array.isArray(subjRes?.data) 
-            ? subjRes.data 
-            : (Array.isArray(subjRes?.data?.data) ? subjRes.data.data : []);
-          currentSubjects = subjData;
-          const sortedSubjs = [...subjData].sort((a, b) => (b.resourceCount || 0) - (a.resourceCount || 0));
-          setPopularSubjects(sortedSubjs.slice(0, 6));
-        }
-
-        const calculatedDownloads = currentResources.reduce((acc, r) => acc + (r.downloadsCount || 0), 0);
-        setStats({
-          totalSemesters: currentSemesters.length || 4,
-          totalSubjects: currentSubjects.length || 0,
-          totalPdfs: currentResources.length || 0,
-          totalDownloads: calculatedDownloads || 0
-        });
-
-      } catch (err) {
-        console.error('Failed to load homepage data:', err);
-      } finally {
-        if (isMounted) {
-          setLoading(false);
+      if (semResult.status === 'fulfilled' && semResult.value) {
+        successCount++;
+        const semRes = semResult.value;
+        const semData = Array.isArray(semRes?.data) 
+          ? semRes.data 
+          : (Array.isArray(semRes?.data?.data) ? semRes.data.data : []);
+        if (semData && semData.length > 0) {
+          currentSemesters = semData;
+          setSemesters(semData);
         }
       }
+
+      if (resResult.status === 'fulfilled' && resResult.value) {
+        successCount++;
+        const resRes = resResult.value;
+        const resData = Array.isArray(resRes?.data) 
+          ? resRes.data 
+          : (Array.isArray(resRes?.data?.data) ? resRes.data.data : []);
+        currentResources = resData;
+        setRecentResources(resData.slice(0, 6));
+      }
+
+      if (subjResult.status === 'fulfilled' && subjResult.value) {
+        successCount++;
+        const subjRes = subjResult.value;
+        const subjData = Array.isArray(subjRes?.data) 
+          ? subjRes.data 
+          : (Array.isArray(subjRes?.data?.data) ? subjRes.data.data : []);
+        currentSubjects = subjData;
+        const sortedSubjs = [...subjData].sort((a, b) => (b.resourceCount || 0) - (a.resourceCount || 0));
+        setPopularSubjects(sortedSubjs.slice(0, 6));
+      }
+
+      if (successCount === 0) {
+        setError('Unable to load resources. Please try again.');
+      }
+
+      const calculatedDownloads = currentResources.reduce((acc, r) => acc + (r.downloadsCount || 0), 0);
+      setStats({
+        totalSemesters: currentSemesters.length || 4,
+        totalSubjects: currentSubjects.length || 0,
+        totalPdfs: currentResources.length || 0,
+        totalDownloads: calculatedDownloads || 0
+      });
+
+    } catch (err) {
+      console.error('Failed to load homepage data:', err);
+      setError('Unable to load resources. Please try again.');
+    } finally {
+      setLoading(false);
     }
-
-    loadHomeData();
-
-    return () => {
-      isMounted = false;
-    };
   }, []);
+
+  useEffect(() => {
+    loadHomeData();
+  }, [loadHomeData]);
 
   const howItWorksSteps = [
     {
@@ -235,6 +236,25 @@ export default function HomePage() {
 
         </div>
       </section>
+
+      {/* ERROR BANNER */}
+      {error && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="bg-rose-500/10 border border-rose-500/20 rounded-2xl p-6 text-center space-y-3">
+            <div className="flex items-center justify-center gap-2 text-rose-400 font-semibold text-sm">
+              <AlertCircle className="w-5 h-5" />
+              <span>{error}</span>
+            </div>
+            <button
+              onClick={loadHomeData}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs font-bold transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Retry Loading Resources
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 1. BROWSE BY SEMESTER */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

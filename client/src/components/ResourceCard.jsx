@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { FileText, Eye, Download, Calendar, HardDrive, AlertTriangle, ArrowUpRight } from 'lucide-react';
+import { FileText, Eye, Download, Calendar, HardDrive, AlertTriangle } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { recordDownload, getFileUrl } from '../services/api';
+import { downloadResourceFile } from '../services/api';
 import { formatUploadDate } from '../utils/dateUtils';
 import ReportModal from './ReportModal';
 
 export default function ResourceCard({ resource, onView, onDownloadSuccess }) {
   const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
 
   const getCategoryBadgeClass = (category) => {
     switch (category) {
@@ -32,20 +34,17 @@ export default function ResourceCard({ resource, onView, onDownloadSuccess }) {
 
   const handleDownload = async (e) => {
     e.stopPropagation();
+    if (isDownloading) return;
+    setIsDownloading(true);
+    setDownloadError('');
     try {
-      await recordDownload(resource.id);
-      if (onDownloadSuccess) onDownloadSuccess(resource.id);
-
-      const link = document.createElement('a');
-      link.href = getFileUrl(resource.fileUrl);
-      link.download = resource.fileName || `${resource.name}.pdf`;
-      link.target = '_blank';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      await downloadResourceFile(resource, onDownloadSuccess);
     } catch (err) {
       console.error('Download error:', err);
-      window.open(getFileUrl(resource.fileUrl), '_blank');
+      setDownloadError('Download failed. Please try again.');
+      setTimeout(() => setDownloadError(''), 4000);
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -103,6 +102,12 @@ export default function ResourceCard({ resource, onView, onDownloadSuccess }) {
                 </span>
               )}
             </div>
+
+            {downloadError && (
+              <p className="text-xs text-rose-400 font-medium pt-1 animate-in fade-in">
+                {downloadError}
+              </p>
+            )}
           </div>
         </div>
 
@@ -126,10 +131,11 @@ export default function ResourceCard({ resource, onView, onDownloadSuccess }) {
 
           <button
             onClick={handleDownload}
-            className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-md shadow-sky-600/20"
+            disabled={isDownloading}
+            className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-md shadow-sky-600/20"
           >
-            <Download className="w-4 h-4" />
-            Download
+            <Download className={`w-4 h-4 ${isDownloading ? 'animate-bounce' : ''}`} />
+            {isDownloading ? 'Downloading...' : 'Download'}
           </button>
         </div>
       </motion.div>

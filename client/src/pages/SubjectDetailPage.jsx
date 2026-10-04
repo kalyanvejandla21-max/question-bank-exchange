@@ -4,7 +4,7 @@ import { getSubjectById, getResources } from '../services/api';
 import ResourceCard from '../components/ResourceCard';
 import PdfViewerModal from '../components/PdfViewerModal';
 import EmptyState from '../components/EmptyState';
-import { ArrowLeft, BookOpen, Upload, FileText, Search, Filter } from 'lucide-react';
+import { ArrowLeft, BookOpen, Upload, Search, RefreshCw, AlertCircle } from 'lucide-react';
 
 const CATEGORIES = [
   'All',
@@ -22,26 +22,33 @@ export default function SubjectDetailPage() {
   const [activeCategory, setActiveCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [viewingResource, setViewingResource] = useState(null);
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const subjRes = await getSubjectById(subjectId);
-        if (subjRes.success) {
-          setSubject(subjRes.data);
-        }
-
-        const resData = await getResources({ subjectId });
-        if (resData.success) {
-          setResources(resData.data);
-        }
-      } catch (err) {
-        console.error('Error loading subject resources:', err);
-      } finally {
-        setLoading(false);
+  const loadData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const subjRes = await getSubjectById(subjectId);
+      if (subjRes.success) {
+        setSubject(subjRes.data);
       }
+
+      const resData = await getResources({ subjectId });
+      if (resData.success) {
+        setResources(resData.data);
+      } else {
+        setError('Unable to load resources. Please try again.');
+      }
+    } catch (err) {
+      console.error('Error loading subject resources:', err);
+      setError('Unable to load resources. Please try again.');
+    } finally {
+      setLoading(false);
     }
+  };
+
+  useEffect(() => {
     loadData();
   }, [subjectId]);
 
@@ -131,7 +138,21 @@ export default function SubjectDetailPage() {
       </div>
 
       {/* Resources List */}
-      {loading ? (
+      {error ? (
+        <div className="bg-rose-500/10 border border-rose-500/20 rounded-2xl p-6 text-center space-y-3">
+          <div className="flex items-center justify-center gap-2 text-rose-400 font-semibold text-sm">
+            <AlertCircle className="w-5 h-5" />
+            <span>{error}</span>
+          </div>
+          <button
+            onClick={loadData}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs font-bold transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Retry Loading Resources
+          </button>
+        </div>
+      ) : loading ? (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="h-24 rounded-2xl bg-slate-900 animate-pulse border border-slate-800" />
@@ -164,6 +185,9 @@ export default function SubjectDetailPage() {
         <PdfViewerModal
           resource={viewingResource}
           onClose={() => setViewingResource(null)}
+          onDownloadSuccess={(id) => {
+            setResources(prev => prev.map(r => r.id === id ? { ...r, downloadsCount: (r.downloadsCount || 0) + 1 } : r));
+          }}
         />
       )}
 

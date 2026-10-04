@@ -57,21 +57,21 @@ export const uploadToCloudinary = async (filePath, originalName = '') => {
 
     const commonOptions = {
       folder: 'qb_exchanger',
-      resource_type: 'raw',
+      resource_type: 'image',
       use_filename: true,
       unique_filename: true,
       timeout: 600000
     };
 
-    // Use upload_large for files > 5 MB to avoid ECONNRESET socket timeouts during monolithic uploads.
-    // NOTE: Cloudinary SDK's upload_large requires a callback function (error, result) to return a Promise.
+    // Use upload_large for files > 5 MB to avoid socket timeouts and monolithic payload limits.
+    // NOTE: Cloudinary SDK v2 requires: upload_large(filePath, options, callback)
     if (stats.size > 5 * 1024 * 1024) {
       result = await new Promise((resolve, reject) => {
         cloudinary.uploader.upload_large(
           filePath,
           {
             ...commonOptions,
-            chunk_size: 6000000 // 6 MB chunk size (Cloudinary requires chunks >= 5MB)
+            chunk_size: 5242880 // 5 MB chunk size (5,242,880 bytes - standard Cloudinary chunk size)
           },
           (error, res) => {
             if (error) return reject(error);
