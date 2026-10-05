@@ -2,11 +2,12 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import mongoose from 'mongoose';
 import { fileURLToPath } from 'url';
 import { store } from '../data/store.js';
 import { requireAdminAuth } from '../middleware/authMiddleware.js';
 import { uploadToCloudinary, deleteFromCloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
-import { uploadToR2, deleteFromR2, isR2Configured } from '../config/r2.js';
+import { uploadToGridFS, deleteFromGridFS, getGridFSBucket, getGridFSFileDoc } from '../config/gridfs.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,7 +17,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
-// Multer Config
+// Multer Disk Storage Configuration for incoming temporary upload chunks
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, UPLOADS_DIR);
@@ -35,14 +36,14 @@ const fileFilter = (req, file, cb) => {
   if (isPdfExt && isPdfMime) {
     cb(null, true);
   } else {
-    cb(new Error('Please upload a PDF file.'), false);
+    cb(new Error('Please upload a valid PDF file.'), false);
   }
 };
 
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 25 * 1024 * 1024 } // 25MB Limit
+  limits: { fileSize: 25 * 1024 * 1024 } // 25 MB Application Limit
 });
 
 const router = express.Router();
@@ -68,6 +69,51 @@ router.get('/reports/all', requireAdminAuth, (req, res) => {
   }
 });
 
+// GET /api/resources/file/:gridfsId (Stream GridFS PDF File directly for Preview/View)
+router.get('/file/:gridfsId', async (req, res) => {
+  try {
+    const { gridfsId } = req.params;
+
+    if (!gridfsId || !mongoose.Types.ObjectId.isValid(gridfsId)) {
+      return res.status(400).json({ success: false, message: 'Invalid GridFS file ID format.' });
+    }
+
+    const bucket = getGridFSBucket();
+    if (!bucket) {
+      return res.status(500).json({ success: false, message: 'Database storage service is unavailable.' });
+    }
+
+    const fileDoc = await getGridFSFileDoc(gridfsId);
+    if (!fileDoc) {
+      return res.status(404).json({ success: false, message: 'PDF file not found in database.' });
+    }
+
+    const filename = fileDoc.filename || 'document.pdf';
+    const sanitizedFileName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+
+    res.setHeader('Content-Type', fileDoc.contentType || 'application/pdf');
+    res.setHeader('Content-Length', fileDoc.length);
+    res.setHeader('Content-Disposition', `inline; filename="${sanitizedFileName}"`);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+
+    const downloadStream = bucket.openDownloadStream(fileDoc._id);
+
+    downloadStream.on('error', (err) => {
+      console.error(`[GridFS Stream Error] Failed to stream file ${gridfsId}:`, err);
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, message: 'Error streaming PDF file.' });
+      }
+    });
+
+    downloadStream.pipe(res);
+  } catch (err) {
+    console.error('[GridFS File Route Error]:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: err.message || 'Error processing GridFS file request' });
+    }
+  }
+});
+
 // GET /api/resources/:id
 router.get('/:id', (req, res) => {
   try {
@@ -81,7 +127,7 @@ router.get('/:id', (req, res) => {
   }
 });
 
-// POST /api/resources/upload
+// POST /api/resources/upload (Upload PDF file directly to MongoDB GridFS)
 router.post('/upload', (req, res) => {
   const reqStart = Date.now();
   console.log(`[UPLOAD] Request received at ${new Date().toISOString()}`);
@@ -111,6 +157,8 @@ router.post('/upload', (req, res) => {
       return res.status(400).json({ success: false, message: 'File size must be 25 MB or less.' });
     }
 
+    let uploadedGridFSId = null;
+
     try {
       const { name, semester, subjectId, category } = req.body;
 
@@ -121,7 +169,7 @@ router.post('/upload', (req, res) => {
         return res.status(400).json({ success: false, message: 'Please provide name, semester, subject, and category.' });
       }
 
-      // Pre-flight duplicate check BEFORE cloud upload to save network overhead on duplicates
+      // Pre-flight duplicate check BEFORE storage upload
       const duplicate = store.checkDuplicateResource({ name, semester });
       if (duplicate) {
         if (req.file && fs.existsSync(req.file.path)) {
@@ -138,74 +186,67 @@ router.post('/upload', (req, res) => {
       const fileSizeMb = (req.file.size / (1024 * 1024)).toFixed(2);
       const fileSize = req.file.size > 1024 * 1024 ? `${fileSizeMb} MB` : `${Math.round(req.file.size / 1024)} KB`;
 
-      let fileUrl = null;
-      let cloudinaryPublicId = null;
-      let r2Key = null;
-      let storageProvider = 'r2';
-
       const storageStart = Date.now();
+      console.log(`[UPLOAD] MongoDB GridFS stream upload started for "${req.file.originalname}" (${fileSizeMb} MB)`);
 
-      console.log(`[UPLOAD] Cloudflare R2 upload started for "${req.file.originalname}" (${fileSizeMb} MB)`);
-      if (!isR2Configured()) {
-        if (fs.existsSync(req.file.path)) {
-          try { fs.unlinkSync(req.file.path); } catch (e) {}
-        }
-        return res.status(500).json({
-          success: false,
-          message: 'PDF storage is temporarily unavailable. Please try again later.'
-        });
-      }
-
+      // Upload temporary local file stream to MongoDB GridFS
+      let gridfsRes;
       try {
-        const r2Res = await uploadToR2(req.file.path, req.file.originalname, { semester, subject: subjectId });
-        fileUrl = r2Res?.secure_url;
-        r2Key = r2Res?.key;
-        cloudinaryPublicId = null;
-        storageProvider = 'r2';
-      } catch (r2Err) {
+        gridfsRes = await uploadToGridFS(req.file.path, req.file.originalname, {
+          semester,
+          subjectId,
+          category,
+          name: name.trim()
+        });
+        uploadedGridFSId = gridfsRes.gridfsId;
+      } catch (gridfsErr) {
         if (fs.existsSync(req.file.path)) {
           try { fs.unlinkSync(req.file.path); } catch (e) {}
         }
-        console.error('[UPLOAD ERROR] Cloudflare R2 upload error details:', r2Err);
+        console.error('[UPLOAD ERROR] MongoDB GridFS upload error:', gridfsErr);
         return res.status(500).json({
           success: false,
-          message: 'PDF storage is temporarily unavailable. Please try again later.'
+          message: `GridFS Upload Error: ${gridfsErr.message || 'Database storage error.'}`
         });
       }
 
       const storageTime = Date.now() - storageStart;
-      console.log(`[UPLOAD] Cloudflare R2 upload completed in ${storageTime}ms`);
+      console.log(`[UPLOAD] MongoDB GridFS stream upload completed in ${storageTime}ms (GridFS ID: ${uploadedGridFSId})`);
 
-      // Defensive validation: Ensure URL is a valid external HTTPS URL and never a local /uploads/ path
-      if (!fileUrl || !fileUrl.startsWith('https://')) {
+      // Construct application resource endpoint URL
+      const relativeFileUrl = `/api/resources/file/${uploadedGridFSId}`;
+
+      console.log(`[UPLOAD] MongoDB Resource record save started`);
+      const dbStart = Date.now();
+
+      let newResource;
+      try {
+        newResource = await store.addResource({
+          name: name.trim(),
+          semester,
+          subjectId,
+          category,
+          fileName: req.file.originalname || req.file.filename,
+          fileUrl: relativeFileUrl,
+          fileSize,
+          filePath: req.file.path,
+          gridfsId: uploadedGridFSId,
+          storageProvider: 'gridfs'
+        });
+      } catch (dbErr) {
+        // ROLLBACK: Delete newly-created GridFS file if Resource metadata creation fails
+        console.error('[UPLOAD ERROR] Metadata creation failed. Rolling back GridFS object:', dbErr);
+        if (uploadedGridFSId) {
+          try { await deleteFromGridFS(uploadedGridFSId); } catch (e) {}
+        }
         if (fs.existsSync(req.file.path)) {
           try { fs.unlinkSync(req.file.path); } catch (e) {}
         }
-        return res.status(500).json({
-          success: false,
-          message: 'Upload rejected: Could not generate a valid durable HTTPS URL.'
-        });
+        throw dbErr;
       }
 
-      console.log(`[UPLOAD] MongoDB save started`);
-      const dbStart = Date.now();
-
-      const newResource = await store.addResource({
-        name: name.trim(),
-        semester,
-        subjectId,
-        category,
-        fileName: req.file.filename,
-        fileUrl,
-        fileSize,
-        filePath: req.file.path,
-        cloudinaryPublicId,
-        r2Key,
-        storageProvider
-      });
-
       const dbTime = Date.now() - dbStart;
-      console.log(`[UPLOAD] MongoDB save completed in ${dbTime}ms`);
+      console.log(`[UPLOAD] MongoDB Resource record save completed in ${dbTime}ms`);
 
       // Delete temporary local file after saving resource metadata
       if (fs.existsSync(req.file.path)) {
@@ -217,7 +258,7 @@ router.post('/upload', (req, res) => {
 
       res.status(201).json({
         success: true,
-        message: 'PDF uploaded successfully!',
+        message: 'PDF uploaded successfully to MongoDB GridFS!',
         data: newResource,
         timing: {
           multerMs: multerTime,
@@ -243,7 +284,7 @@ router.post('/upload', (req, res) => {
       console.error('[UPLOAD ERROR] Unexpected upload handler exception:', error);
       res.status(500).json({
         success: false,
-        message: 'PDF storage is temporarily unavailable. Please try again later.'
+        message: error.message || 'Failed to upload PDF resource.'
       });
     }
   });
@@ -315,9 +356,25 @@ router.get('/:id/download-file', async (req, res) => {
     const fileName = resource.fileName || `${resource.name || 'document'}.pdf`;
     const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
 
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${sanitizedFileName}"`);
+    // Handle GridFS resources directly
+    if (resource.storageProvider === 'gridfs' || resource.gridfsId) {
+      const gridfsId = resource.gridfsId || (resource.fileUrl ? resource.fileUrl.split('/file/')[1] : null);
+      if (gridfsId && mongoose.Types.ObjectId.isValid(gridfsId)) {
+        const bucket = getGridFSBucket();
+        const fileDoc = await getGridFSFileDoc(gridfsId);
 
+        if (bucket && fileDoc) {
+          res.setHeader('Content-Type', 'application/pdf');
+          res.setHeader('Content-Disposition', `attachment; filename="${sanitizedFileName}"`);
+          res.setHeader('Content-Length', fileDoc.length);
+
+          const downloadStream = bucket.openDownloadStream(fileDoc._id);
+          return downloadStream.pipe(res);
+        }
+      }
+    }
+
+    // Handle Legacy Cloudinary resources
     if (resource.fileUrl && resource.fileUrl.startsWith('https://res.cloudinary.com/')) {
       const cldUrl = resource.fileUrl.includes('/upload/') && !resource.fileUrl.includes('/fl_attachment/')
         ? resource.fileUrl.replace('/upload/', '/upload/fl_attachment/')
@@ -328,6 +385,7 @@ router.get('/:id/download-file', async (req, res) => {
     } else {
       const filePath = path.join(UPLOADS_DIR, resource.fileName);
       if (fs.existsSync(filePath)) {
+        res.setHeader('Content-Type', 'application/pdf');
         return res.download(filePath, sanitizedFileName);
       }
       return res.status(404).json({ success: false, message: 'PDF file not found' });
@@ -364,18 +422,18 @@ router.post('/bulk-delete', requireAdminAuth, async (req, res) => {
     console.log(`[Admin Bulk Delete] Database deletion complete: ${removedList.length} of ${ids.length} removed.`);
 
     let cldSuccessCount = 0;
-    let r2SuccessCount = 0;
+    let gridfsSuccessCount = 0;
 
     for (const item of removedList) {
       if (item) {
-        if (item.storageProvider === 'r2' || item.r2Key) {
-          const key = item.r2Key || item.cloudinaryPublicId;
-          if (key) {
+        if (item.storageProvider === 'gridfs' || item.gridfsId) {
+          const gId = item.gridfsId || (item.fileUrl ? item.fileUrl.split('/file/')[1] : null);
+          if (gId) {
             try {
-              await deleteFromR2(key);
-              r2SuccessCount++;
-            } catch (r2Err) {
-              console.error(`[Admin Bulk Delete] R2 deletion error for ${item.id}:`, r2Err.message);
+              await deleteFromGridFS(gId);
+              gridfsSuccessCount++;
+            } catch (gridfsErr) {
+              console.error(`[Admin Bulk Delete] GridFS deletion error for ${item.id}:`, gridfsErr.message);
             }
           }
         } else if (item.cloudinaryPublicId) {
@@ -388,7 +446,7 @@ router.post('/bulk-delete', requireAdminAuth, async (req, res) => {
         }
       }
     }
-    console.log(`[Admin Bulk Delete] Storage cleanup complete: ${cldSuccessCount} Cloudinary files, ${r2SuccessCount} R2 files cleaned up.`);
+    console.log(`[Admin Bulk Delete] Storage cleanup complete: ${cldSuccessCount} Cloudinary files, ${gridfsSuccessCount} GridFS files cleaned up.`);
 
     res.json({
       success: true,
@@ -417,16 +475,16 @@ router.delete('/:id', requireAdminAuth, async (req, res) => {
     console.log(`[Admin Single Delete] Resource ${resourceId} ("${deleted.name || deleted.title || ''}") deleted from database.`);
 
     let deleteStatus = 'N/A';
-    if (deleted.storageProvider === 'r2' || deleted.r2Key) {
-      const key = deleted.r2Key || deleted.cloudinaryPublicId;
-      if (key) {
+    if (deleted.storageProvider === 'gridfs' || deleted.gridfsId) {
+      const gId = deleted.gridfsId || (deleted.fileUrl ? deleted.fileUrl.split('/file/')[1] : null);
+      if (gId) {
         try {
-          await deleteFromR2(key);
-          deleteStatus = 'r2_success';
-          console.log(`[Admin Single Delete] Cloudflare R2 file ${key} cleaned up.`);
-        } catch (r2Err) {
-          deleteStatus = `r2_failed: ${r2Err.message}`;
-          console.error(`[Admin Single Delete] Cloudflare R2 deletion error:`, r2Err.message);
+          await deleteFromGridFS(gId);
+          deleteStatus = 'gridfs_success';
+          console.log(`[Admin Single Delete] MongoDB GridFS file ${gId} cleaned up.`);
+        } catch (gridfsErr) {
+          deleteStatus = `gridfs_failed: ${gridfsErr.message}`;
+          console.error(`[Admin Single Delete] MongoDB GridFS deletion error:`, gridfsErr.message);
         }
       }
     } else if (deleted.cloudinaryPublicId) {

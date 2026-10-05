@@ -5,7 +5,8 @@ import mongoose from 'mongoose';
 import { fileURLToPath } from 'url';
 import { initialSemesters, initialSubjects, initialResources } from './seedData.js';
 import { ensureSamplePdfs } from './seedPdfs.js';
-import { uploadToCloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
+import { uploadToCloudinary, deleteFromCloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
+import { deleteFromGridFS } from '../config/gridfs.js';
 import { Resource, Subject, Semester, Report } from '../models/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -321,8 +322,15 @@ class DataStore {
     this.data.reports = this.data.reports.filter(rep => !removedResIds.has(rep.resourceId));
     this.save();
 
-    relatedResources.forEach(r => {
-      if (r.fileName) {
+    relatedResources.forEach(async r => {
+      if (r.storageProvider === 'gridfs' || r.gridfsId) {
+        const gId = r.gridfsId || (r.fileUrl ? r.fileUrl.split('/file/')[1] : null);
+        if (gId) {
+          try { await deleteFromGridFS(gId); } catch (e) {}
+        }
+      } else if (r.cloudinaryPublicId) {
+        try { await deleteFromCloudinary(r.cloudinaryPublicId); } catch (e) {}
+      } else if (r.fileName) {
         this.cleanupFileOnDisk(r.fileName);
       }
     });
@@ -401,8 +409,15 @@ class DataStore {
     this.data.reports = this.data.reports.filter(rep => !removedResIds.has(rep.resourceId));
     this.save();
 
-    removedResources.forEach(r => {
-      if (r.fileName) {
+    removedResources.forEach(async r => {
+      if (r.storageProvider === 'gridfs' || r.gridfsId) {
+        const gId = r.gridfsId || (r.fileUrl ? r.fileUrl.split('/file/')[1] : null);
+        if (gId) {
+          try { await deleteFromGridFS(gId); } catch (e) {}
+        }
+      } else if (r.cloudinaryPublicId) {
+        try { await deleteFromCloudinary(r.cloudinaryPublicId); } catch (e) {}
+      } else if (r.fileName) {
         this.cleanupFileOnDisk(r.fileName);
       }
     });
@@ -487,13 +502,13 @@ class DataStore {
     return null;
   }
 
-  async addResource({ name, semester, subjectId, category, fileName, fileUrl, fileSize, filePath, cloudinaryPublicId, r2Key, storageProvider }) {
+  async addResource({ name, semester, subjectId, category, fileName, fileUrl, fileSize, filePath, cloudinaryPublicId, r2Key, gridfsId, storageProvider }) {
     if (!ALLOWED_SEMESTERS.includes(semester)) {
       throw new Error(`Invalid semester. Allowed semesters are: ${ALLOWED_SEMESTERS.join(', ')}`);
     }
 
-    if (!fileUrl || !fileUrl.startsWith('https://')) {
-      throw new Error('Resource fileUrl must be a valid external HTTPS URL. Storing local /uploads/ paths is prohibited.');
+    if (!fileUrl) {
+      throw new Error('Resource fileUrl is required.');
     }
 
     const fileHash = filePath ? calculateFileHash(filePath) : null;
@@ -523,7 +538,8 @@ class DataStore {
       fileHash,
       cloudinaryPublicId: cloudinaryPublicId || null,
       r2Key: r2Key || null,
-      storageProvider: storageProvider || (fileUrl.includes('res.cloudinary.com') ? 'cloudinary' : 'r2'),
+      gridfsId: gridfsId || null,
+      storageProvider: storageProvider || (gridfsId ? 'gridfs' : (fileUrl.includes('res.cloudinary.com') ? 'cloudinary' : 'gridfs')),
       uploadedDate: new Date().toISOString(),
       uploadedBy: 'Student/User',
       downloadsCount: 0,

@@ -2,19 +2,19 @@ import express from 'express';
 import { store } from '../data/store.js';
 import { requireAdminAuth } from '../middleware/authMiddleware.js';
 import { deleteFromCloudinary } from '../config/cloudinary.js';
-import { deleteFromR2 } from '../config/r2.js';
+import { deleteFromGridFS } from '../config/gridfs.js';
 
 const router = express.Router();
 
 const cleanupResourceStorage = async (resItem) => {
   if (!resItem) return;
-  if (resItem.storageProvider === 'r2' || resItem.r2Key) {
-    const key = resItem.r2Key || resItem.cloudinaryPublicId;
-    if (key) {
+  if (resItem.storageProvider === 'gridfs' || resItem.gridfsId) {
+    const gId = resItem.gridfsId || (resItem.fileUrl ? resItem.fileUrl.split('/file/')[1] : null);
+    if (gId) {
       try {
-        await deleteFromR2(key);
+        await deleteFromGridFS(gId);
       } catch (err) {
-        console.error(`[Subject Delete] R2 cleanup error for ${resItem.id}:`, err.message);
+        console.error(`[Subject Delete] GridFS cleanup error for ${resItem.id}:`, err.message);
       }
     }
   } else if (resItem.cloudinaryPublicId) {
